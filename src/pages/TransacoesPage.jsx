@@ -818,7 +818,7 @@ export default function TransacoesPage() {
     // Dependências:
     // - cartoesNorm: para remover nomes de cartões e detectar cartão
     // - mesReferencia: para interpretar "dia 15" no mês atual
-  }, [cartoesNorm, mesReferencia?.ano, mesReferencia?.mes]);
+  }, []);
 
   // Inicia gravação
   const iniciarGravacao = () => {
@@ -1181,3 +1181,4 @@ export default function TransacoesPage() {
     </div>
   );
 }
+
