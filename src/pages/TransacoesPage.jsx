@@ -6,13 +6,24 @@
 // - Usa continuous=false (mais estável no mobile) + auto-restart controlado
 // - Timer de silêncio 3s continua funcionando
 // ✅ Corrigido: se detectar nome do cartão no texto, ASSUME crédito e seleciona o cartão
+// ✅ Corrigido (DATA/HORA): puxa SEMPRE data e hora atuais do aparelho (local) e salva com data+hora corretas
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useFinance } from "../App.jsx";
 
-function toInputDate(ano, mes, dia) {
-  const d = new Date(ano, mes, dia);
-  return d.toISOString().slice(0, 10);
+// ✅ Data local (YYYY-MM-DD) sem UTC
+function toInputDateLocal(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+// ✅ Hora local (HH:MM)
+function toInputTimeLocal(d) {
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${hh}:${mm}`;
 }
 
 function formatCurrency(value) {
@@ -50,13 +61,29 @@ export default function TransacoesPage() {
   const [parcelado, setParcelado] = useState(false);
   const [numeroParcelas, setNumeroParcelas] = useState(2);
 
-  const [dataTransacao, setDataTransacao] = useState(() => {
-    const hoje = new Date();
-    const ano = mesReferencia?.ano ?? hoje.getFullYear();
-    const mes = mesReferencia?.mes ?? hoje.getMonth();
-    const dia = hoje.getDate();
-    return toInputDate(ano, mes, dia);
-  });
+  // ✅ DATA/HORA AUTOMÁTICAS (do aparelho) — NÃO depende de mesReferencia
+  const [dataTransacao, setDataTransacao] = useState(() => toInputDateLocal(new Date()));
+  const [horaTransacao, setHoraTransacao] = useState(() => toInputTimeLocal(new Date()));
+
+  // ✅ se a pessoa mexer manualmente, não sobrescreve
+  const [dataFoiEditada, setDataFoiEditada] = useState(false);
+  const [horaFoiEditada, setHoraFoiEditada] = useState(false);
+
+  // ✅ sempre que entrar na página (mount), garante hoje/agora
+  useEffect(() => {
+    const now = new Date();
+    setDataTransacao(toInputDateLocal(now));
+    setHoraTransacao(toInputTimeLocal(now));
+    // não marca como editada, porque é automático
+  }, []);
+
+  // ✅ se mudar mesReferencia (ex.: você mudou mês lá nas Finanças),
+  // a data/hora continuam sendo HOJE/AGORA (a não ser que você tenha editado manualmente)
+  useEffect(() => {
+    const now = new Date();
+    if (!dataFoiEditada) setDataTransacao(toInputDateLocal(now));
+    if (!horaFoiEditada) setHoraTransacao(toInputTimeLocal(now));
+  }, [mesReferencia, dataFoiEditada, horaFoiEditada]);
 
   const isDespesa = tipo === "despesa";
 
@@ -152,7 +179,7 @@ export default function TransacoesPage() {
           formaPagamento: "credito",
           cartaoId: cartaoIdForm,
           fixo: false,
-          dataHora: dataParcela.toISOString(),
+          dataHora: dataParcela.toISOString(), // mantém ISO para consistência no banco
           parcelaAtual: i,
           parcelaTotal: n,
           groupId,
@@ -194,24 +221,38 @@ export default function TransacoesPage() {
 
     setReviewText("");
     setReviewOpen(false);
+
+    // ✅ depois de salvar: volta pra HOJE + AGORA automaticamente
+    const now = new Date();
+    setDataFoiEditada(false);
+    setHoraFoiEditada(false);
+    setDataTransacao(toInputDateLocal(now));
+    setHoraTransacao(toInputTimeLocal(now));
   };
 
-  const montarBaseDateISO = (yyyyMmDd) => {
-    if (yyyyMmDd) {
-      const agora = new Date();
-      const [y, m, d] = String(yyyyMmDd).split("-").map(Number);
-      const dt = new Date(
-        y,
-        (m || 1) - 1,
-        d || 1,
-        agora.getHours(),
-        agora.getMinutes(),
-        agora.getSeconds(),
-        agora.getMilliseconds()
-      );
-      return dt.toISOString();
-    }
-    return new Date().toISOString();
+  // ✅ monta uma ISO usando DATA + HORA escolhidas (no horário local)
+  const montarBaseDateISO = (yyyyMmDd, hhmm) => {
+    const agora = new Date();
+
+    const [y, m, d] = String(yyyyMmDd || toInputDateLocal(agora))
+      .split("-")
+      .map(Number);
+
+    const [hh, mm] = String(hhmm || toInputTimeLocal(agora))
+      .split(":")
+      .map(Number);
+
+    const dt = new Date(
+      y,
+      (m || 1) - 1,
+      d || 1,
+      Number.isFinite(hh) ? hh : agora.getHours(),
+      Number.isFinite(mm) ? mm : agora.getMinutes(),
+      agora.getSeconds(),
+      agora.getMilliseconds()
+    );
+
+    return dt.toISOString();
   };
 
   const confirmarSalvarAtual = () => {
@@ -221,7 +262,8 @@ export default function TransacoesPage() {
       return;
     }
 
-    const baseISO = montarBaseDateISO(dataTransacao);
+    // ✅ usa data + hora do formulário
+    const baseISO = montarBaseDateISO(dataTransacao, horaTransacao);
 
     const ehDespesaCredito =
       tipo === "despesa" && formaPagamento === "credito" && cartaoId;
@@ -349,8 +391,12 @@ export default function TransacoesPage() {
       const mDia = tNorm.match(/\bdia\s+(\d{1,2})\b/);
       if (mDia && mDia[1]) {
         const dia = clamp(parseInt(mDia[1], 10) || hoje.getDate(), 1, 31);
+
+        // aqui sim pode usar mesReferencia para “dia 15” dentro do mês selecionado,
+        // mas se mesReferencia vier errado, ainda assim a DATA padrão do form é HOJE.
         const ano = mesReferencia?.ano ?? hoje.getFullYear();
         const mes = (mesReferencia?.mes ?? hoje.getMonth()) + 1;
+
         const y = ano;
         const mm = String(mes).padStart(2, "0");
         const dd = String(dia).padStart(2, "0");
@@ -359,10 +405,7 @@ export default function TransacoesPage() {
       return null;
     }
 
-    const y = dt.getFullYear();
-    const mm = String(dt.getMonth() + 1).padStart(2, "0");
-    const dd = String(dt.getDate()).padStart(2, "0");
-    return `${y}-${mm}-${dd}`;
+    return toInputDateLocal(dt);
   };
 
   const extrairDadosDoTexto = (texto) => {
@@ -441,7 +484,7 @@ export default function TransacoesPage() {
       numeroParcelasAuto = 2;
     }
 
-    // 6) Cartão (✅ melhorado)
+    // 6) Cartão
     let cartaoIdAuto = "";
     if (cartoesNorm.length) {
       const hit =
@@ -453,7 +496,6 @@ export default function TransacoesPage() {
       if (hit) cartaoIdAuto = hit.id;
     }
 
-    // ✅ Se achou cartão no texto, assume CRÉDITO automaticamente
     if (cartaoIdAuto) {
       formaAuto = "credito";
     }
@@ -461,7 +503,7 @@ export default function TransacoesPage() {
     // 7) Data
     const dataAuto = extrairDataYYYYMMDD(tNorm);
 
-    // 8) Stopwords (inclui palavras do cartão para não irem para descrição)
+    // 8) Stopwords
     const stopCartoes = new Set();
     (cartoesNorm || []).forEach((c) => {
       (c._normWords || []).forEach((w) => stopCartoes.add(w));
@@ -546,14 +588,11 @@ export default function TransacoesPage() {
     setDescricao(dados.descricaoAuto || "");
     setCategoria(dados.categoriaAuto || "Essencial");
 
-    // ✅ Se falou parcelado, assume crédito
     const formaFinal = dados.parceladoAuto ? "credito" : (dados.formaAuto || "dinheiro");
     setFormaPagamento(formaFinal);
 
-    // ✅ Se detectou cartão e a forma virou crédito, seleciona
     if (formaFinal === "credito") {
       if (dados.cartaoIdAuto) setCartaoId(dados.cartaoIdAuto);
-      // se não achou, mantém o que já estava selecionado
     } else {
       setCartaoId("");
     }
@@ -566,8 +605,12 @@ export default function TransacoesPage() {
       setNumeroParcelas(2);
     }
 
-    if (dados.dataAuto) setDataTransacao(dados.dataAuto);
+    if (dados.dataAuto) {
+      setDataTransacao(dados.dataAuto);
+      setDataFoiEditada(true);
+    }
 
+    // ✅ mantém a hora atual quando veio por voz (não força)
     setReviewText(dados.textoOriginal || "");
     setReviewOpen(true);
   };
@@ -604,7 +647,7 @@ export default function TransacoesPage() {
 
     const rec = new SpeechRecognition();
     rec.lang = "pt-BR";
-    rec.continuous = false; // ✅ mais estável em mobile/PWA
+    rec.continuous = false;
     rec.interimResults = true;
     rec.maxAlternatives = 1;
 
@@ -639,7 +682,6 @@ export default function TransacoesPage() {
 
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = setTimeout(() => {
-        // encerra por silêncio
         manualStopRef.current = false;
         wantListeningRef.current = false;
 
@@ -684,7 +726,6 @@ export default function TransacoesPage() {
         return;
       }
 
-      // se o mobile encerrou sozinho e ainda queremos ouvir, reinicia
       if (wantListeningRef.current) {
         setTimeout(() => {
           try {
@@ -709,7 +750,7 @@ export default function TransacoesPage() {
         rec.abort();
       } catch {}
     };
-  }, []); // ✅ não recria
+  }, []);
 
   const iniciarGravacao = async () => {
     if (!suportaVoz || !recognitionRef.current) {
@@ -769,11 +810,24 @@ export default function TransacoesPage() {
     return c?.nome || "";
   }, [cartoes, cartaoId]);
 
+  const agoraLabel = useMemo(() => {
+    const now = new Date();
+    // mostra “onde você está” = horário local do aparelho (Brasil -03 normalmente)
+    return `${now.toLocaleDateString("pt-BR")} ${now.toLocaleTimeString("pt-BR", {
+      hour: "2-digit",
+      minute: "2-digit",
+    })}`;
+  }, [dataTransacao, horaTransacao]);
+
   return (
     <div className="page">
       <h2 className="page-title">Transações</h2>
 
       <div className="card">
+        <p className="muted small" style={{ marginTop: 0 }}>
+          Agora (horário local do seu aparelho): <strong>{agoraLabel}</strong>
+        </p>
+
         <div style={{ marginBottom: 16, textAlign: "center" }}>
           {!gravando && !processandoAudio && (
             <button
@@ -856,11 +910,25 @@ export default function TransacoesPage() {
             <input
               type="date"
               value={dataTransacao}
-              onChange={(e) => setDataTransacao(e.target.value)}
+              onChange={(e) => {
+                setDataTransacao(e.target.value);
+                setDataFoiEditada(true);
+              }}
+            />
+          </div>
+
+          <div className="field">
+            <label>Hora da transação</label>
+            <input
+              type="time"
+              value={horaTransacao}
+              onChange={(e) => {
+                setHoraTransacao(e.target.value);
+                setHoraFoiEditada(true);
+              }}
             />
             <p className="muted small">
-              Você pode falar: <strong>hoje</strong>, <strong>ontem</strong>,{" "}
-              <strong>amanhã</strong> ou <strong>dia 15</strong>.
+              Dica: por padrão ele usa a hora atual do seu aparelho (Brasil -03 normalmente).
             </p>
           </div>
 
@@ -916,9 +984,6 @@ export default function TransacoesPage() {
                   </option>
                 ))}
               </select>
-              <p className="muted small">
-                Se você falar o nome do cartão (ex.: “Nubank”), ele seleciona e NÃO coloca na descrição.
-              </p>
             </div>
           )}
 
@@ -977,6 +1042,8 @@ export default function TransacoesPage() {
                 <strong>Tipo:</strong> {tipo}
                 <br />
                 <strong>Data:</strong> {dataTransacao || "-"}
+                <br />
+                <strong>Hora:</strong> {horaTransacao || "-"}
                 <br />
                 <strong>Valor:</strong> {valor ? formatCurrency(valor) : "-"}
                 <br />
@@ -1069,7 +1136,7 @@ export default function TransacoesPage() {
         </div>
       )}
 
-      <style>{`
+      <style>{` 
         @keyframes pulse {
           0%, 100% { opacity: 1; }
           50% { opacity: 0.5; }
