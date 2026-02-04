@@ -132,6 +132,151 @@ function parseRecipeFromText(text) {
   };
 }
 
+/* ---------------- COLAR (entrada única) ---------------- */
+
+function looksLikeListLine(line) {
+  const s = line.trim();
+  if (!s) return false;
+  return s.startsWith("-") || s.startsWith("•") || /^\d+[\)\.\-]/.test(s) || /^[a-z]\)/i.test(s);
+}
+
+function cleanHeading(s) {
+  return String(s || "").replace(/^\s*[:\-–—]\s*/, "").trim();
+}
+
+/**
+ * Parser “Entrada rápida”:
+ * - entende cabeçalhos comuns: Título, Categoria, Tempo, Rendimento, Dificuldade, Tags,
+ *   Ingredientes, Modo de preparo/Preparo, Observações/Dicas, Armazenamento/Validade.
+ * - se não tiver cabeçalho, tenta heurística:
+ *   * linhas com "-" ou "•" viram ingredientes
+ *   * linhas com "1)" / "1." viram preparo
+ */
+function parseQuickRecipe(rawText) {
+  const raw = String(rawText || "").replace(/\r/g, "");
+  const lines = raw.split("\n").map((l) => l.trimEnd());
+
+  const out = {
+    titulo: "",
+    categoria: "",
+    tempo: "",
+    rendimento: "",
+    dificuldade: "",
+    tags: "",
+    ingredientes: "",
+    preparo: "",
+    observacoes: "",
+    armazenamento: "",
+  };
+
+  // 1) tenta capturar metadados em linhas tipo "Campo: valor"
+  for (const line of lines) {
+    const l = line.trim();
+    if (!l) continue;
+
+    const m = l.match(/^([A-Za-zÀ-ÿ\s]+)\s*:\s*(.+)$/i);
+    if (!m) continue;
+
+    const key = m[1].trim().toLowerCase();
+    const val = m[2].trim();
+
+    if (key.includes("título") || key === "titulo") out.titulo = val;
+    else if (key.includes("categoria")) out.categoria = val;
+    else if (key.includes("tempo")) out.tempo = val;
+    else if (key.includes("rendimento")) out.rendimento = val;
+    else if (key.includes("dificuldade")) out.dificuldade = val;
+    else if (key.includes("tags")) out.tags = val;
+  }
+
+  // 2) separa blocos por cabeçalhos (ingredientes / preparo / observações / armazenamento)
+  const lower = raw.toLowerCase();
+
+  const idxIng = lower.search(/\bingredientes\b/);
+  const idxPrep = lower.search(/\b(modo\s+de\s+preparo|preparo)\b/);
+  const idxObs = lower.search(/\b(observa(ç|c)ões|dicas)\b/);
+  const idxArm = lower.search(/\b(armazenamento|validade)\b/);
+
+  // monta lista de cortes válidos
+  const cuts = [
+    { name: "ingredientes", idx: idxIng },
+    { name: "preparo", idx: idxPrep },
+    { name: "observacoes", idx: idxObs },
+    { name: "armazenamento", idx: idxArm },
+  ]
+    .filter((c) => c.idx >= 0)
+    .sort((a, b) => a.idx - b.idx);
+
+  function sliceSection(fromIdx, toIdx) {
+    const chunk = raw.slice(fromIdx, toIdx < 0 ? raw.length : toIdx);
+    // remove o cabeçalho da primeira linha do chunk
+    return chunk
+      .replace(
+        /^\s*(ingredientes|modo\s+de\s+preparo|preparo|observa(ç|c)ões|dicas|armazenamento|validade)\s*[:\-]?\s*/i,
+        ""
+      )
+      .trim();
+  }
+
+  if (cuts.length) {
+    for (let i = 0; i < cuts.length; i++) {
+      const cur = cuts[i];
+      const next = cuts[i + 1];
+      const content = sliceSection(cur.idx, next ? next.idx : -1);
+
+      if (cur.name === "ingredientes") out.ingredientes = content;
+      if (cur.name === "preparo") out.preparo = content;
+      if (cur.name === "observacoes") out.observacoes = content;
+      if (cur.name === "armazenamento") out.armazenamento = content;
+    }
+
+    // título (se não veio em "Título:")
+    if (!out.titulo) {
+      // pega a primeira linha "boa" antes de ingredientes/preparo
+      const head = raw
+        .slice(0, cuts[0].idx)
+        .split("\n")
+        .map((l) => l.trim())
+        .filter(Boolean);
+      out.titulo = (head[0] || "").slice(0, 80);
+    }
+  } else {
+    // 3) heurística se não tiver cabeçalhos
+    const clean = lines.map((l) => l.trim()).filter(Boolean);
+
+    out.titulo = out.titulo || (clean[0] || "").slice(0, 80);
+
+    const ingLines = [];
+    const prepLines = [];
+    const otherLines = [];
+
+    for (const l of clean.slice(1)) {
+      const t = l.trim();
+      if (looksLikeListLine(t) && !/^\d+[\)\.\-]/.test(t)) {
+        // "-" ou "•" => ingrediente
+        ingLines.push(t);
+      } else if (/^\d+[\)\.\-]/.test(t) || /^[a-z]\)/i.test(t)) {
+        // "1)" "1." "a)" => preparo
+        prepLines.push(t);
+      } else {
+        otherLines.push(t);
+      }
+    }
+
+    out.ingredientes = ingLines.join("\n").trim();
+    out.preparo = prepLines.join("\n").trim();
+
+    // se sobrou texto, joga em observações
+    if (otherLines.length) out.observacoes = otherLines.join("\n").trim();
+  }
+
+  // limpeza final
+  out.titulo = cleanHeading(out.titulo);
+  out.ingredientes = String(out.ingredientes || "").trim();
+  out.preparo = String(out.preparo || "").trim();
+
+  return out;
+}
+
 // Componente principal da página de Receitas
 export default function ReceitasPage() {
   // Lista de receitas armazenadas
@@ -142,6 +287,7 @@ export default function ReceitasPage() {
   // - "form": criar/editar receita
   // - "ver": visualizar receita como “livro”
   // - "importar": importar por foto do dispositivo
+  // - "colar": colar texto único e organizar
   const [modo, setModo] = useState("lista");
 
   // filtro
@@ -162,6 +308,9 @@ export default function ReceitasPage() {
   const [observacoes, setObservacoes] = useState("");
   const [armazenamento, setArmazenamento] = useState("");
   const [foto, setFoto] = useState(""); // Foto como DataURL
+
+  // ✅ colar/entrada rápida (texto único)
+  const [quickText, setQuickText] = useState("");
 
   // importar por imagem
   const [importFile, setImportFile] = useState(null);
@@ -289,6 +438,23 @@ export default function ReceitasPage() {
     setFoto("");
   }
 
+  function applyParsedToForm(parsed) {
+    if (!parsed) return;
+
+    // não reseta tudo à força: só preenche o que tiver
+    if (parsed.titulo) setTitulo(parsed.titulo);
+    if (parsed.categoria) setCategoria(parsed.categoria);
+    if (parsed.tempo) setTempo(parsed.tempo);
+    if (parsed.rendimento) setRendimento(parsed.rendimento);
+    if (parsed.dificuldade) setDificuldade(parsed.dificuldade);
+    if (parsed.tags) setTags(parsed.tags);
+
+    if (parsed.ingredientes) setIngredientes(parsed.ingredientes);
+    if (parsed.preparo) setPreparo(parsed.preparo);
+    if (parsed.observacoes) setObservacoes(parsed.observacoes);
+    if (parsed.armazenamento) setArmazenamento(parsed.armazenamento);
+  }
+
   function openNew() {
     resetForm();
     setModo("form");
@@ -301,6 +467,12 @@ export default function ReceitasPage() {
     setImportFile(null);
     setImportPreview("");
     setModo("importar");
+  }
+
+  function openColar() {
+    resetForm();
+    setQuickText("");
+    setModo("colar");
   }
 
   function openEdit(r) {
@@ -519,6 +691,10 @@ export default function ReceitasPage() {
                 + Nova receita
               </button>
 
+              <button type="button" className="primary-btn" onClick={openColar} style={{ flex: 1 }} title="Colar texto de uma receita e organizar">
+                ✍️ Colar
+              </button>
+
               <button type="button" className="primary-btn" onClick={openImport} style={{ flex: 1 }} title="Importar por foto do dispositivo">
                 🖼 Importar
               </button>
@@ -642,6 +818,74 @@ export default function ReceitasPage() {
               </button>
             </div>
           ) : null}
+        </div>
+      )}
+
+      {/* MODO COLAR (entrada única) */}
+      {modo === "colar" && (
+        <div className="card">
+          <div className="card-header-row">
+            <h3 style={{ margin: 0 }}>Colar receita (texto único)</h3>
+            <button
+              type="button"
+              className="chip"
+              style={{ width: "auto" }}
+              onClick={() => {
+                setModo("lista");
+                setQuickText("");
+              }}
+            >
+              Voltar
+            </button>
+          </div>
+
+          <div className="muted small mt">
+            Cole a receita completa. Se tiver cabeçalhos, melhor ainda (Ingredientes, Modo de preparo, etc.).
+          </div>
+
+          <div className="field mt">
+            <label>Texto da receita</label>
+            <textarea
+              className="receita-textarea"
+              value={quickText}
+              onChange={(e) => setQuickText(e.target.value)}
+              placeholder={`Título: Bolo de cenoura
+Categoria: Doces
+Tempo: 50 min
+Rendimento: 12 fatias
+Dificuldade: Fácil
+Tags: bolo, forno, chocolate
+
+Ingredientes:
+- 3 cenouras
+- 3 ovos
+- ...
+
+Modo de preparo:
+1) Bata no liquidificador...
+2) ...`}
+            />
+          </div>
+
+          <button
+            type="button"
+            className="primary-btn"
+            onClick={() => {
+              const parsed = parseQuickRecipe(quickText);
+              resetForm();
+              applyParsedToForm(parsed);
+              setCategoria((c) => c || "Doces");
+              setDificuldade((d) => d || "Fácil");
+              setModo("form");
+            }}
+            disabled={!quickText.trim()}
+          >
+            Organizar e abrir no formulário
+          </button>
+
+          <button type="button" className="chip mt" style={{ width: "100%" }} onClick={() => setQuickText("")} disabled={!quickText.trim()}>
+            Limpar
+          </button>
         </div>
       )}
 
@@ -895,13 +1139,7 @@ export default function ReceitasPage() {
           }}
           role="presentation"
         >
-          <div
-            className="modal"
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-label={modal.title || "Modal"}
-          >
+          <div className="modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={modal.title || "Modal"}>
             <h3 style={{ marginTop: 0 }}>{modal.title}</h3>
 
             <div className="muted" style={{ whiteSpace: "pre-wrap" }}>
