@@ -67,7 +67,7 @@ function generateId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2);
 }
 
-/* ✅ (NOVO) Regras de “virar o mês” no dia de pagamento (inclui “dia útil”) */
+/* ✅ Regras de “virar o mês” no dia de pagamento (inclui “dia útil”) */
 function getNthBusinessDayDate(year, monthIndex, n) {
   let count = 0;
   const d = new Date(year, monthIndex, 1);
@@ -99,6 +99,44 @@ function parseDiaPagamentoToRule(diaPagamentoRaw) {
   if (Number.isFinite(day) && day >= 1 && day <= 31) return { kind: "dayOfMonth", day };
 
   return null;
+}
+
+// ✅ calcula qual mês deve estar ativo pelo diaPagamento
+// - antes do pagamento: mês anterior
+// - no dia/apos pagamento: mês atual
+function calcMesRefByPayday(diaPagamentoRaw) {
+  const rule = parseDiaPagamentoToRule(diaPagamentoRaw);
+  const today = new Date();
+  const y = today.getFullYear();
+  const m = today.getMonth();
+
+  if (!rule) {
+    // se não tem regra, usa mês atual normal
+    return { mes: m, ano: y };
+  }
+
+  let payday = null;
+
+  if (rule.kind === "businessDay") {
+    payday = getNthBusinessDayDate(y, m, rule.n);
+  } else if (rule.kind === "dayOfMonth") {
+    const lastDay = new Date(y, m + 1, 0).getDate();
+    const dd = Math.min(lastDay, rule.day);
+    payday = new Date(y, m, dd);
+  }
+
+  if (!payday) return { mes: m, ano: y };
+
+  // zera hora pra comparação “limpa”
+  const t0 = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const p0 = new Date(payday.getFullYear(), payday.getMonth(), payday.getDate());
+
+  if (t0 < p0) {
+    // mês anterior
+    const prev = new Date(y, m - 1, 1);
+    return { mes: prev.getMonth(), ano: prev.getFullYear() };
+  }
+  return { mes: m, ano: y };
 }
 
 /* Valores padrão */
@@ -140,19 +178,41 @@ export default function App() {
   // Reserva
   const [reserva, setReserva] = useState(DEFAULT_RESERVA);
 
-  // 🔄 MÊS DE REFERÊNCIA GLOBAL
+  // ==========================================================
+  // ✅ MÊS DE REFERÊNCIA COM PERSISTÊNCIA + MODO AUTOMÁTICO
+  // ==========================================================
+  const [mesAuto, setMesAuto] = useState(true);
+
+  // começa com mês “normal”, mas depois vamos restaurar do storage do usuário
   const hoje = new Date();
   const [mesReferencia, setMesReferencia] = useState({
     mes: hoje.getMonth(),
     ano: hoje.getFullYear(),
   });
 
+  // ✅ salva mês/auto no storage (por usuário)
+  const persistMesRef = (uid, ref) => saveToStorage(`mesRef_${uid}`, ref);
+  const persistMesAuto = (uid, v) => saveToStorage(`mesAuto_${uid}`, v);
+
+  // ✅ ir para mês automático “do pagamento”
   const irParaMesAtual = () => {
-    const h = new Date();
-    setMesReferencia({ mes: h.getMonth(), ano: h.getFullYear() });
+    if (!user) {
+      // sem usuário, só vai no mês atual normal
+      const h = new Date();
+      setMesReferencia({ mes: h.getMonth(), ano: h.getFullYear() });
+      return;
+    }
+    const ref = calcMesRefByPayday(profile?.diaPagamento);
+    setMesAuto(true);
+    setMesReferencia(ref);
+    persistMesAuto(user.uid, true);
+    persistMesRef(user.uid, ref);
   };
 
+  // ✅ mudar mês manualmente (desliga automático e mantém ao reabrir)
   const mudarMesReferencia = (delta) => {
+    setMesAuto(false);
+
     setMesReferencia((prev) => {
       let novoMes = prev.mes + delta;
       let novoAno = prev.ano;
@@ -165,43 +225,46 @@ export default function App() {
         novoAno++;
       }
 
-      return { mes: novoMes, ano: novoAno };
+      const ref = { mes: novoMes, ano: novoAno };
+
+      if (user?.uid) {
+        persistMesAuto(user.uid, false);
+        persistMesRef(user.uid, ref);
+      }
+
+      return ref;
     });
   };
 
-  // ✅ (NOVO) “Vira o mês” automaticamente no dia de pagamento:
-  // - se for "5º dia útil": antes dele fica no mês anterior; no dia/apos ele fica no mês atual
-  // - se for dia fixo: mesma lógica
-  useEffect(() => {
-    const rule = parseDiaPagamentoToRule(profile?.diaPagamento);
-    if (!rule) return;
-
-    const today = new Date();
-    const y = today.getFullYear();
-    const m = today.getMonth();
-
-    let payday = null;
-
-    if (rule.kind === "businessDay") {
-      payday = getNthBusinessDayDate(y, m, rule.n);
-    } else if (rule.kind === "dayOfMonth") {
-      const lastDay = new Date(y, m + 1, 0).getDate();
-      const dd = Math.min(lastDay, rule.day);
-      payday = new Date(y, m, dd);
+  // ✅ também permite setar direto (se algum dia você fizer um seletor “YYYY-MM”)
+  const setMesReferenciaManual = (ref) => {
+    if (!ref) return;
+    setMesAuto(false);
+    setMesReferencia(ref);
+    if (user?.uid) {
+      persistMesAuto(user.uid, false);
+      persistMesRef(user.uid, ref);
     }
+  };
 
-    if (!payday) return;
+  // ✅ (NOVO) Atualiza mês AUTOMÁTICO quando chega o pagamento,
+  // mas SÓ se mesAuto === true.
+  useEffect(() => {
+    if (!mesAuto) return;
 
-    const shouldBe =
-      today < payday
-        ? { mes: (m + 11) % 12, ano: m === 0 ? y - 1 : y }
-        : { mes: m, ano: y };
+    const tick = () => {
+      const ref = calcMesRefByPayday(profile?.diaPagamento);
+      setMesReferencia((prev) => {
+        if (prev?.mes === ref.mes && prev?.ano === ref.ano) return prev;
+        if (user?.uid) persistMesRef(user.uid, ref);
+        return ref;
+      });
+    };
 
-    setMesReferencia((prev) => {
-      if (prev?.mes === shouldBe.mes && prev?.ano === shouldBe.ano) return prev;
-      return shouldBe;
-    });
-  }, [profile?.diaPagamento]);
+    tick();
+    const id = setInterval(tick, 60 * 1000); // checa a cada 1 min (PWA ok)
+    return () => clearInterval(id);
+  }, [mesAuto, profile?.diaPagamento, user]);
 
   // ✅ Aba atual geral
   const [abaAtiva, setAbaAtiva] = useState("financas");
@@ -304,6 +367,36 @@ export default function App() {
           );
         }
 
+        // ✅ RESTAURA MÊS/ AUTO DO STORAGE DO USUÁRIO
+        const storedMesAuto = loadFromStorage(`mesAuto_${uid}`, null);
+        const storedMesRef = loadFromStorage(`mesRef_${uid}`, null);
+
+        // se já tinha preferência salva:
+        if (typeof storedMesAuto === "boolean") {
+          setMesAuto(storedMesAuto);
+          if (storedMesAuto === true) {
+            const ref = calcMesRefByPayday((snap.data()?.profile || profile)?.diaPagamento);
+            setMesReferencia(ref);
+            persistMesRef(uid, ref);
+          } else {
+            if (storedMesRef && typeof storedMesRef.mes === "number" && typeof storedMesRef.ano === "number") {
+              setMesReferencia(storedMesRef);
+            } else {
+              // fallback: se não tem mesRef salvo, guarda o atual
+              const ref = { mes: new Date().getMonth(), ano: new Date().getFullYear() };
+              setMesReferencia(ref);
+              persistMesRef(uid, ref);
+            }
+          }
+        } else {
+          // se nunca salvou antes, começa em automático pelo pagamento
+          const ref = calcMesRefByPayday((snap.data()?.profile || profile)?.diaPagamento);
+          setMesAuto(true);
+          setMesReferencia(ref);
+          persistMesAuto(uid, true);
+          persistMesRef(uid, ref);
+        }
+
         setDadosCarregados(true);
 
         unsubSnapshot = onSnapshot(userDocRef, (docSnap) => {
@@ -327,6 +420,28 @@ export default function App() {
         setTransacoes(storedTransacoes);
         setCartoes(storedCartoes);
         setReserva(storedReserva);
+
+        // ✅ restaura mês/auto mesmo no fallback offline
+        const storedMesAuto = loadFromStorage(`mesAuto_${uid}`, true);
+        const storedMesRef = loadFromStorage(`mesRef_${uid}`, null);
+
+        setMesAuto(!!storedMesAuto);
+        if (storedMesAuto) {
+          const ref = calcMesRefByPayday(storedProfile?.diaPagamento);
+          setMesReferencia(ref);
+          persistMesRef(uid, ref);
+          persistMesAuto(uid, true);
+        } else if (storedMesRef) {
+          setMesReferencia(storedMesRef);
+          persistMesAuto(uid, false);
+        } else {
+          const h = new Date();
+          const ref = { mes: h.getMonth(), ano: h.getFullYear() };
+          setMesReferencia(ref);
+          persistMesAuto(uid, false);
+          persistMesRef(uid, ref);
+        }
+
         setDadosCarregados(true);
       }
     })();
@@ -459,14 +574,18 @@ export default function App() {
       reserva,
       setReserva: atualizarReserva,
 
+      // ✅ mês global com modo automático/manual persistente
       mesReferencia,
       mudarMesReferencia,
       irParaMesAtual,
+      mesAuto,
+      setMesAuto,
+      setMesReferenciaManual,
 
       loginComGoogle,
       logout,
     }),
-    [user, profile, transacoes, cartoes, reserva, mesReferencia]
+    [user, profile, transacoes, cartoes, reserva, mesReferencia, mesAuto]
   );
 
   /* ------- ESCOLHE PÁGINA ------- */
