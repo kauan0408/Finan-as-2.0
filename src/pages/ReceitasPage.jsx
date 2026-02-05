@@ -10,7 +10,9 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 // Chave do localStorage onde as receitas serão salvas
 const LS_KEY = "pwa_receitas_v1";
 
-// Faz parse de JSON com segurança: se der erro, devolve um fallback
+/* -------- helpers -------- */
+
+// Faz parse de JSON com fallback seguro (se der erro, retorna fallback)
 function safeJSONParse(v, fallback) {
   try {
     return JSON.parse(v);
@@ -530,6 +532,59 @@ export default function ReceitasPage() {
     setFoto(dataUrl);
   }
 
+  // ✅✅✅ ADICIONADO (somente o que você pediu): salvar direto do texto colado
+  function tagsToArray(tagsText) {
+    return String(tagsText || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+
+  function saveParsedRecipeDirect(parsed) {
+    const t = String(parsed?.titulo || "").trim();
+    if (!t) return showInfo("Faltou título", "Coloque um título.");
+    if (!String(parsed?.ingredientes || "").trim()) return showInfo("Faltou ingredientes", "Coloque os ingredientes.");
+    if (!String(parsed?.preparo || "").trim()) return showInfo("Faltou preparo", "Coloque o modo de preparo.");
+
+    const catParsed = String(parsed?.categoria || "").trim();
+    const catFinal = catParsed ? (CATEGORIAS.includes(catParsed) ? catParsed : "Outros") : "Doces";
+
+    const difParsed = String(parsed?.dificuldade || "").trim();
+    const difFinal = difParsed || "Fácil";
+
+    const base = {
+      titulo: t,
+      categoria: catFinal,
+      tempo: String(parsed?.tempo || "").trim(),
+      rendimento: String(parsed?.rendimento || "").trim(),
+      dificuldade: difFinal,
+      tags: tagsToArray(parsed?.tags || ""),
+      ingredientes: String(parsed?.ingredientes || "").trim(),
+      preparo: String(parsed?.preparo || "").trim(),
+      observacoes: String(parsed?.observacoes || "").trim(),
+      armazenamento: String(parsed?.armazenamento || "").trim(),
+      foto: "",
+      updatedAt: nowISO(),
+    };
+
+    const next = [
+      {
+        id: uuid(),
+        createdAt: nowISO(),
+        favorita: false,
+        ...base,
+      },
+      ...(items || []),
+    ];
+
+    save(next);
+    setModo("lista");
+    resetForm();
+    setQuickText("");
+    showInfo("Salvo ✅", "Receita salva direto a partir do texto colado.");
+  }
+  // ✅✅✅ FIM DO ADICIONADO
+
   function submit() {
     const t = titulo.trim();
     if (!t) return showInfo("Faltou título", "Coloque um título.");
@@ -867,9 +922,23 @@ Modo de preparo:
             />
           </div>
 
+          {/* ✅✅✅ ADICIONADO: botão para salvar direto (sem mexer no resto) */}
           <button
             type="button"
             className="primary-btn"
+            onClick={() => {
+              const parsed = parseQuickRecipe(quickText);
+              saveParsedRecipeDirect(parsed);
+            }}
+            disabled={!quickText.trim()}
+          >
+            ✅ Organizar e salvar
+          </button>
+          {/* ✅✅✅ FIM DO ADICIONADO */}
+
+          <button
+            type="button"
+            className="primary-btn mt"
             onClick={() => {
               const parsed = parseQuickRecipe(quickText);
               resetForm();
