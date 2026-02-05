@@ -71,6 +71,7 @@ function prevMonth(ano, mes0) {
 }
 
 export default function FinancasPage() {
+  // ✅ importante: irParaMesAtual agora usa o “mês financeiro” (ajustado no App.jsx)
   const { transacoes, profile, mesReferencia, mudarMesReferencia, irParaMesAtual } =
     useFinance();
 
@@ -162,7 +163,8 @@ export default function FinancasPage() {
           if (!v) return;
 
           const key = normalizarNome(t.descricao || "Sem descrição");
-          const atual = mapa.get(key) || { descricao: t.descricao || "Sem descrição", valor: 0, count: 0 };
+          const atual =
+            mapa.get(key) || { descricao: t.descricao || "Sem descrição", valor: 0, count: 0 };
           atual.valor += v;
           atual.count += 1;
 
@@ -210,9 +212,7 @@ export default function FinancasPage() {
 
     const salarioPrev = getSalarioMes(anoPrev, mesPrev);
     const saldoPrevComSalario =
-      salarioPrev > 0
-        ? salarioPrev + resumoPrev.receitas - resumoPrev.despesas
-        : resumoPrev.saldo;
+      salarioPrev > 0 ? salarioPrev + resumoPrev.receitas - resumoPrev.despesas : resumoPrev.saldo;
 
     const pendenteAnterior = saldoPrevComSalario < 0 ? Math.abs(saldoPrevComSalario) : 0;
 
@@ -253,9 +253,7 @@ export default function FinancasPage() {
   };
 
   const percLimite =
-    limiteGastoMensal > 0
-      ? Math.min(100, (resumoAtual.despesas / limiteGastoMensal) * 100)
-      : 0;
+    limiteGastoMensal > 0 ? Math.min(100, (resumoAtual.despesas / limiteGastoMensal) * 100) : 0;
 
   const nomeMes = [
     "Janeiro",
@@ -287,6 +285,7 @@ export default function FinancasPage() {
             ◀ Mês anterior
           </button>
 
+          {/* ✅ AGORA: “Atual” leva pro mês financeiro, calculado no App.jsx pelo diaPagamento */}
           <button className="toggle-btn toggle-active" onClick={irParaMesAtual}>
             ● Atual
           </button>
@@ -329,8 +328,7 @@ export default function FinancasPage() {
           ) : (
             <span
               className={
-                "badge badge-pill " +
-                (resultadoSalario >= 0 ? "badge-positive" : "badge-negative")
+                "badge badge-pill " + (resultadoSalario >= 0 ? "badge-positive" : "badge-negative")
               }
             >
               {resultadoSalario >= 0 ? "Sobrou" : "Faltou"}{" "}
@@ -458,9 +456,6 @@ export default function FinancasPage() {
           </div>
         </div>
 
-        {/* ✅ AQUI FOI O QUE VOCÊ PEDIU:
-            Em vez de “gasto por semana” só com barras,
-            agora cada barra mostra o VALOR GASTO em cima do gráfico. */}
         <div className="card">
           <h3>Gastos por semana</h3>
 
@@ -470,7 +465,6 @@ export default function FinancasPage() {
 
               return (
                 <div className="bar-column" key={i} style={{ alignItems: "center" }}>
-                  {/* ✅ VALOR EM CIMA DE CADA BARRA */}
                   <div className="muted small" style={{ marginBottom: 6 }}>
                     {formatCurrency(v)}
                   </div>
