@@ -339,6 +339,40 @@ export default function App() {
           saveToStorage(`transacoes_${uid}`, transacoesCloud);
           saveToStorage(`cartoes_${uid}`, cartoesCloud);
           saveToStorage(`reserva_${uid}`, reservaCloud);
+
+          // ✅ RESTAURA MÊS/ AUTO DO STORAGE DO USUÁRIO
+          const storedMesAuto = loadFromStorage(`mesAuto_${uid}`, null);
+          const storedMesRef = loadFromStorage(`mesRef_${uid}`, null);
+
+          // ✅ (ALTERAÇÃO MÍNIMA) usa perfilCloud aqui (já é o perfil correto)
+          const diaPgParaCalculo = perfilCloud?.diaPagamento;
+
+          if (typeof storedMesAuto === "boolean") {
+            setMesAuto(storedMesAuto);
+            if (storedMesAuto === true) {
+              const ref = calcMesRefByPayday(diaPgParaCalculo);
+              setMesReferencia(ref);
+              persistMesRef(uid, ref);
+            } else {
+              if (
+                storedMesRef &&
+                typeof storedMesRef.mes === "number" &&
+                typeof storedMesRef.ano === "number"
+              ) {
+                setMesReferencia(storedMesRef);
+              } else {
+                const ref = { mes: new Date().getMonth(), ano: new Date().getFullYear() };
+                setMesReferencia(ref);
+                persistMesRef(uid, ref);
+              }
+            }
+          } else {
+            const ref = calcMesRefByPayday(diaPgParaCalculo);
+            setMesAuto(true);
+            setMesReferencia(ref);
+            persistMesAuto(uid, true);
+            persistMesRef(uid, ref);
+          }
         } else {
           const storedProfile = loadFromStorage(`profile_${uid}`, null);
           const storedTransacoes = loadFromStorage(`transacoes_${uid}`, null);
@@ -365,36 +399,37 @@ export default function App() {
             },
             { merge: true }
           );
-        }
 
-        // ✅ RESTAURA MÊS/ AUTO DO STORAGE DO USUÁRIO
-        const storedMesAuto = loadFromStorage(`mesAuto_${uid}`, null);
-        const storedMesRef = loadFromStorage(`mesRef_${uid}`, null);
+          // ✅ RESTAURA MÊS/ AUTO DO STORAGE DO USUÁRIO
+          const storedMesAuto = loadFromStorage(`mesAuto_${uid}`, null);
+          const storedMesRef = loadFromStorage(`mesRef_${uid}`, null);
 
-        // se já tinha preferência salva:
-        if (typeof storedMesAuto === "boolean") {
-          setMesAuto(storedMesAuto);
-          if (storedMesAuto === true) {
-            const ref = calcMesRefByPayday((snap.data()?.profile || profile)?.diaPagamento);
-            setMesReferencia(ref);
-            persistMesRef(uid, ref);
-          } else {
-            if (storedMesRef && typeof storedMesRef.mes === "number" && typeof storedMesRef.ano === "number") {
-              setMesReferencia(storedMesRef);
-            } else {
-              // fallback: se não tem mesRef salvo, guarda o atual
-              const ref = { mes: new Date().getMonth(), ano: new Date().getFullYear() };
+          if (typeof storedMesAuto === "boolean") {
+            setMesAuto(storedMesAuto);
+            if (storedMesAuto === true) {
+              const ref = calcMesRefByPayday(perfilInicial?.diaPagamento);
               setMesReferencia(ref);
               persistMesRef(uid, ref);
+            } else {
+              if (
+                storedMesRef &&
+                typeof storedMesRef.mes === "number" &&
+                typeof storedMesRef.ano === "number"
+              ) {
+                setMesReferencia(storedMesRef);
+              } else {
+                const ref = { mes: new Date().getMonth(), ano: new Date().getFullYear() };
+                setMesReferencia(ref);
+                persistMesRef(uid, ref);
+              }
             }
+          } else {
+            const ref = calcMesRefByPayday(perfilInicial?.diaPagamento);
+            setMesAuto(true);
+            setMesReferencia(ref);
+            persistMesAuto(uid, true);
+            persistMesRef(uid, ref);
           }
-        } else {
-          // se nunca salvou antes, começa em automático pelo pagamento
-          const ref = calcMesRefByPayday((snap.data()?.profile || profile)?.diaPagamento);
-          setMesAuto(true);
-          setMesReferencia(ref);
-          persistMesAuto(uid, true);
-          persistMesRef(uid, ref);
         }
 
         setDadosCarregados(true);
