@@ -7,6 +7,11 @@
 // - useState: estados da UI e do formulário
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
+// ✅ Firebase (para salvar online quando estiver logada)
+import { auth, db } from "../firebase";
+import { onAuthStateChanged } from "firebase/auth";
+import { doc, getDoc, setDoc } from "firebase/firestore";
+
 // Chave do localStorage onde as receitas serão salvas
 const LS_KEY = "pwa_receitas_v1";
 
@@ -279,10 +284,27 @@ function parseQuickRecipe(rawText) {
   return out;
 }
 
+// ✅ helper: pega data ISO "mais recente" de uma lista (para decidir merge)
+function getLatestISO(list) {
+  const arr = Array.isArray(list) ? list : [];
+  let best = "";
+  for (const r of arr) {
+    const iso = String(r?.updatedAt || r?.createdAt || "");
+    if (iso && iso > best) best = iso;
+  }
+  return best;
+}
+
 // Componente principal da página de Receitas
 export default function ReceitasPage() {
   // Lista de receitas armazenadas
   const [items, setItems] = useState([]);
+
+  // ✅ usuário logado (para salvar online)
+  const [uid, setUid] = useState(null);
+
+  // ✅ evita “ida e volta” no primeiro load
+  const hydratingRef = useRef(false);
 
   // Controla a tela atual:
   // - "lista": listagem com filtros
@@ -385,16 +407,95 @@ export default function ReceitasPage() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [modal.open, modal.onCancel, modal.onConfirm]);
 
-  // Carrega receitas do localStorage ao montar
+  // ✅ observa login (uid)
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (user) => {
+      setUid(user?.uid || null);
+    });
+    return () => unsub();
+  }, []);
+
+  // ✅ load localStorage primeiro (sempre)
   useEffect(() => {
     const saved = safeJSONParse(localStorage.getItem(LS_KEY), []);
     setItems(Array.isArray(saved) ? saved : []);
   }, []);
 
-  // Salva lista no estado e no localStorage
-  function save(next) {
+  // ✅ load/sync Firestore quando logar
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadCloudAndMerge() {
+      if (!uid) return;
+
+      try {
+        const ref = doc(db, "users", uid, "pwa", "receitas");
+        const snap = await getDoc(ref);
+
+        const local = safeJSONParse(localStorage.getItem(LS_KEY), []);
+        const localArr = Array.isArray(local) ? local : [];
+        const localLatest = getLatestISO(localArr);
+
+        if (!snap.exists()) {
+          // se não existe no cloud ainda, sobe o local (se tiver algo)
+          if (localArr.length) {
+            await setDoc(ref, { items: localArr, updatedAt: nowISO() }, { merge: true });
+          }
+          return;
+        }
+
+        const data = snap.data() || {};
+        const cloudArr = Array.isArray(data.items) ? data.items : [];
+        const cloudLatest = getLatestISO(cloudArr);
+
+        // decisão: usa o mais “novo”
+        const pickCloud = cloudLatest >= localLatest;
+
+        const chosen = pickCloud ? cloudArr : localArr;
+
+        if (cancelled) return;
+
+        // aplica sem disparar “sync de volta” imediatamente
+        hydratingRef.current = true;
+        setItems(chosen);
+        localStorage.setItem(LS_KEY, JSON.stringify(chosen));
+        // libera depois de um tick
+        setTimeout(() => {
+          hydratingRef.current = false;
+        }, 0);
+
+        // se local era mais novo, atualiza cloud
+        if (!pickCloud && chosen.length) {
+          await setDoc(ref, { items: chosen, updatedAt: nowISO() }, { merge: true });
+        }
+      } catch (e) {
+        console.error("Falha ao carregar/sincronizar receitas (cloud):", e);
+      }
+    }
+
+    loadCloudAndMerge();
+    return () => {
+      cancelled = true;
+    };
+  }, [uid]);
+
+  // Salva lista no estado e no localStorage e (se logada) no Firestore
+  async function save(next) {
     setItems(next);
     localStorage.setItem(LS_KEY, JSON.stringify(next));
+
+    // evita salvar no cloud durante hidratação inicial
+    if (hydratingRef.current) return;
+
+    // cloud
+    if (uid) {
+      try {
+        const ref = doc(db, "users", uid, "pwa", "receitas");
+        await setDoc(ref, { items: next, updatedAt: nowISO() }, { merge: true });
+      } catch (e) {
+        console.error("Falha ao salvar receitas no cloud:", e);
+      }
+    }
   }
 
   // Lista filtrada e ordenada
@@ -754,6 +855,11 @@ export default function ReceitasPage() {
                 🖼 Importar
               </button>
             </div>
+
+            {/* ✅ status simples do cloud */}
+            <div className="muted small" style={{ marginTop: 10 }}>
+              {uid ? "☁️ Salvando online (logada)" : "📱 Salvando só neste aparelho (sem login)"}
+            </div>
           </div>
 
           <div className="card mt">
@@ -922,7 +1028,6 @@ Modo de preparo:
             />
           </div>
 
-          {/* ✅✅✅ ADICIONADO: botão para salvar direto (sem mexer no resto) */}
           <button
             type="button"
             className="primary-btn"
@@ -934,7 +1039,6 @@ Modo de preparo:
           >
             ✅ Organizar e salvar
           </button>
-          {/* ✅✅✅ FIM DO ADICIONADO */}
 
           <button
             type="button"
