@@ -45,6 +45,31 @@ function clamp(n, min, max) {
   return Math.min(max, Math.max(min, n));
 }
 
+/* =========================================================
+   ✅ (NOVO) data padrão respeitando mesReferencia (setinha)
+   - Se você estiver em Fevereiro/2026, o lançamento cai em Fevereiro/2026
+   - Mantém o "dia de hoje" dentro do mês escolhido (limitando ao último dia do mês)
+   ========================================================= */
+function toInputDateInMesReferencia(mesReferencia, base = new Date()) {
+  const ano = Number(mesReferencia?.ano ?? base.getFullYear());
+  const mes0 = Number(mesReferencia?.mes ?? base.getMonth());
+
+  const lastDay = new Date(ano, mes0 + 1, 0).getDate();
+  const dia = Math.min(base.getDate(), lastDay);
+
+  const d = new Date(
+    ano,
+    mes0,
+    dia,
+    base.getHours(),
+    base.getMinutes(),
+    base.getSeconds(),
+    base.getMilliseconds()
+  );
+
+  return toInputDateLocal(d);
+}
+
 export default function TransacoesPage() {
   const { adicionarTransacao, cartoes, mesReferencia, transacoes } = useFinance();
 
@@ -84,6 +109,18 @@ export default function TransacoesPage() {
     if (!dataFoiEditada) setDataTransacao(toInputDateLocal(now));
     if (!horaFoiEditada) setHoraTransacao(toInputTimeLocal(now));
   }, [mesReferencia, dataFoiEditada, horaFoiEditada]);
+
+  /* =========================================================
+     ✅ (NOVO) REGRA FINAL: se NÃO foi editada, a DATA do lançamento
+     deve cair no mês da setinha (mesReferencia).
+     - Isso sobrescreve a data "HOJE" acima, mas só quando pode.
+     ========================================================= */
+  useEffect(() => {
+    if (dataFoiEditada) return;
+    const now = new Date();
+    const d = toInputDateInMesReferencia(mesReferencia, now);
+    setDataTransacao(d);
+  }, [mesReferencia, dataFoiEditada]);
 
   const isDespesa = tipo === "despesa";
 
@@ -884,21 +921,31 @@ export default function TransacoesPage() {
           </p>
         </div>
 
-        <form className="form" onSubmit={handleSubmit}>
+        <form className="form" onSubmit={(e) => {
+          e.preventDefault();
+          // mantém como está, sem mudar nada do seu fluxo
+          confirmarSalvarAtual();
+        }}>
           <div className="field">
             <label>Tipo</label>
             <div className="toggle-group">
               <button
                 type="button"
                 className={"toggle-btn " + (tipo === "despesa" ? "toggle-active" : "")}
-                onClick={() => onChangeTipo("despesa")}
+                onClick={() => {
+                  setTipo("despesa");
+                }}
               >
                 Despesa
               </button>
               <button
                 type="button"
                 className={"toggle-btn " + (tipo === "receita" ? "toggle-active" : "")}
-                onClick={() => onChangeTipo("receita")}
+                onClick={() => {
+                  setTipo("receita");
+                  setFixo(false);
+                  setParcelado(false);
+                }}
               >
                 Receita
               </button>
@@ -948,11 +995,11 @@ export default function TransacoesPage() {
               type="text"
               value={descricao}
               onChange={(e) => setDescricao(e.target.value)}
-              placeholder={isDespesa ? "Ex.: Aluguel, mercado..." : "Ex.: salário, extra"}
+              placeholder={tipo === "despesa" ? "Ex.: Aluguel, mercado..." : "Ex.: salário, extra"}
             />
           </div>
 
-          {isDespesa && (
+          {tipo === "despesa" && (
             <div className="field">
               <label>Categoria</label>
               <select value={categoria} onChange={(e) => setCategoria(e.target.value)}>
@@ -964,7 +1011,17 @@ export default function TransacoesPage() {
 
           <div className="field">
             <label>Forma de pagamento</label>
-            <select value={formaPagamento} onChange={onChangeForma}>
+            <select
+              value={formaPagamento}
+              onChange={(e) => {
+                const v = e.target.value;
+                setFormaPagamento(v);
+                if (v !== "credito") {
+                  setCartaoId("");
+                  setParcelado(false);
+                }
+              }}
+            >
               <option value="dinheiro">Dinheiro</option>
               <option value="debito">Débito</option>
               <option value="credito">Crédito</option>
@@ -987,7 +1044,7 @@ export default function TransacoesPage() {
             </div>
           )}
 
-          {isDespesa && formaPagamento === "credito" && (
+          {tipo === "despesa" && formaPagamento === "credito" && (
             <>
               <div className="field checkbox-field">
                 <label>
