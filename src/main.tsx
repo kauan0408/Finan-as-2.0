@@ -19,7 +19,9 @@ ReactDOM.createRoot(root).render(
 if (import.meta.env.PROD && "serviceWorker" in navigator) {
   window.addEventListener("load", () => {
     navigator.serviceWorker
-      .register("/service-worker.js")
+      // 🔴 ANTES: "/service-worker.js"
+      // ✅ AGORA:
+      .register("/sw.js")
       .then(() => console.log("Service Worker registrado"))
       .catch((err) =>
         console.error("Erro ao registrar Service Worker:", err)
