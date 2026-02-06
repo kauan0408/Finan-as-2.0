@@ -1,6 +1,11 @@
 // src/pages/LembretesPage.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
+// ✅ Firebase online (Firestore)
+import { auth, db } from "../firebase"; // ajuste o caminho se necessário
+import { onAuthStateChanged } from "firebase/auth";
+import { doc, getDoc, setDoc } from "firebase/firestore";
+
 const LS_KEY = "pwa_lembretes_v1";
 
 /* -------- helpers -------- */
@@ -281,7 +286,6 @@ function computeNextDueAdvanced(itemLike, fromDate) {
   const timeHHmm = itemLike?.timeHHmm || "09:00";
 
   if (scheduleType === "diario") {
-    // se ainda não passou o horário de hoje, pode ser hoje; senão amanhã
     const today = makeDateAtTime(new Date(), timeHHmm);
     if (today.getTime() > Date.now()) return today;
     return makeDateAtTime(addDays(new Date(), 1), timeHHmm);
@@ -304,7 +308,7 @@ function computeNextDueAdvanced(itemLike, fromDate) {
     return nextFromFixedDates(itemLike.datasFixas || [], fromDate, timeHHmm);
   }
 
-  // intervalo (mantém seu modo antigo)
+  // intervalo
   const intervalDays = unitToDays(itemLike.unit || "dias", itemLike.every || 1);
   return computeNextDueIntervalFromBase(fromDate, intervalDays, timeHHmm);
 }
@@ -312,7 +316,7 @@ function computeNextDueAdvanced(itemLike, fromDate) {
 /**
  * conflictMode:
  * - "allow"  -> permite
- * - "shift"  -> empurra para próximo dia disponível (semanal/mensal/diario etc)
+ * - "shift"  -> empurra para próximo dia disponível
  * - "block"  -> bloqueia salvar se cair em dia ocupado
  */
 function computeNextDueWithConflict(itemLike, fromDate, fullList, excludeId) {
@@ -326,11 +330,9 @@ function computeNextDueWithConflict(itemLike, fromDate, fullList, excludeId) {
   let base = new Date(fromDate);
   if (Number.isNaN(base.getTime())) base = new Date();
 
-  // tenta achar algo
   for (let guard = 0; guard < 260; guard++) {
     const cand = itemLike?.scheduleMode
-      ? // compat: engine antigo (interval/weekdays/monthdays)
-        (function () {
+      ? (function () {
           const mode = itemLike?.scheduleMode || "interval";
           const timeHHmm = itemLike?.timeHHmm || "09:00";
 
@@ -340,8 +342,7 @@ function computeNextDueWithConflict(itemLike, fromDate, fullList, excludeId) {
           const intervalDays = unitToDays(itemLike.unit || "dias", itemLike.every || 1);
           return computeNextDueIntervalFromBase(base, intervalDays, timeHHmm);
         })()
-      : // novo engine
-        computeNextDueAdvanced(itemLike, base);
+      : computeNextDueAdvanced(itemLike, base);
 
     if (!cand) return null;
 
@@ -351,9 +352,8 @@ function computeNextDueWithConflict(itemLike, fromDate, fullList, excludeId) {
     if (!conflict) return cand;
 
     if (block) return { __conflict: true, dateKey: key, cand };
-    if (!noSameDayShift) return cand; // allow
+    if (!noSameDayShift) return cand;
 
-    // shift: empurra a base para o dia seguinte e tenta de novo
     base = addDays(startOfDay(cand), 1);
   }
 
@@ -394,6 +394,10 @@ function Modal({ open, title, children, onClose }) {
 export default function LembretesPage() {
   const [list, setList] = useState([]);
 
+  // ✅ ONLINE
+  const [uid, setUid] = useState(null);
+  const [cloudReady, setCloudReady] = useState(false);
+
   // ✅ Form
   const [tipo, setTipo] = useState("avulso"); // avulso | recorrente
   const [titulo, setTitulo] = useState("");
@@ -402,7 +406,7 @@ export default function LembretesPage() {
   // ✅ Recorrente: NOVO "scheduleType"
   const [scheduleType, setScheduleType] = useState("intervalo"); // intervalo|diario|semanal|mensal|aniversario|personalizado
 
-  // ✅ compat antigo (continua existindo porque seus dados já usam)
+  // ✅ compat antigo
   const [scheduleMode, setScheduleMode] = useState("interval"); // interval | weekdays | monthdays
 
   // intervalo
@@ -472,15 +476,70 @@ export default function LembretesPage() {
   const recRef = useRef(null);
   const voiceFinalRef = useRef("");
 
-  // ✅ Load
+  /* ---------------- ONLINE helpers (Firestore) ---------------- */
+
+  function cloudDocRef(userId) {
+    return doc(db, "users", userId, "pwa", "lembretes");
+  }
+
+  async function loadFromCloud(userId) {
+    try {
+      const ref = cloudDocRef(userId);
+      const snap = await getDoc(ref);
+      if (!snap.exists()) return null;
+      const data = snap.data();
+      if (!data || !Array.isArray(data.items)) return null;
+      return data.items;
+    } catch {
+      return null;
+    }
+  }
+
+  async function saveToCloud(userId, items) {
+    try {
+      const ref = cloudDocRef(userId);
+      await setDoc(ref, { items, updatedAt: nowISO() }, { merge: true });
+    } catch {
+      // offline/erro -> silencioso
+    }
+  }
+
+  // ✅ Load: offline-first + sync cloud
   useEffect(() => {
+    // 1) carrega local imediatamente
     const saved = safeJSONParse(localStorage.getItem(LS_KEY) || "[]", []);
     setList(Array.isArray(saved) ? saved : []);
+
+    // 2) observa login e tenta nuvem
+    const unsub = onAuthStateChanged(auth, async (user) => {
+      const userId = user?.uid || null;
+      setUid(userId);
+
+      if (!userId) {
+        setCloudReady(true);
+        return;
+      }
+
+      const cloudItems = await loadFromCloud(userId);
+      if (Array.isArray(cloudItems)) {
+        setList(cloudItems);
+        localStorage.setItem(LS_KEY, JSON.stringify(cloudItems));
+      }
+
+      setCloudReady(true);
+    });
+
+    return () => unsub();
   }, []);
 
   function save(next) {
     setList(next);
     localStorage.setItem(LS_KEY, JSON.stringify(next));
+
+    // ✅ salva online se logado
+    if (uid && cloudReady) {
+      saveToCloud(uid, next);
+    }
   }
 
   function toastMsg(t) {
@@ -607,16 +666,9 @@ export default function LembretesPage() {
         new Notification("📌 Lembrete do dia", { body: `${item.titulo} hoje` });
       } catch {}
 
-      const computed = computeNextDueWithConflict(
-        item,
-        addDays(new Date(), 1),
-        list,
-        item.id
-      );
+      const computed = computeNextDueWithConflict(item, addDays(new Date(), 1), list, item.id);
 
-      // se "block" e conflitou, não avança automaticamente
       if (computed && computed.__conflict) return item;
-
       if (!computed || !computed.toISOString) return item;
 
       changed = true;
@@ -660,7 +712,6 @@ export default function LembretesPage() {
       const dt = parseLocalDateTime(quando);
       if (!dt) return toastMsg("Data/hora inválida.");
 
-      // conflito no avulso: respeita "block" se usuário quiser
       const k = toLocalDateKey(dt);
       if (conflictMode === "block" && hasDateConflict(list, k, null)) {
         return toastMsg("Já existe um lembrete para esse dia.");
@@ -679,9 +730,7 @@ export default function LembretesPage() {
         updatedAt: nowISO(),
       };
 
-      const next = [item, ...list].sort((a, b) =>
-        String(a.quando || "").localeCompare(String(b.quando || ""))
-      );
+      const next = [item, ...list].sort((a, b) => String(a.quando || "").localeCompare(String(b.quando || "")));
       save(next);
 
       scheduleInPageNotification(item.titulo, dt);
@@ -694,11 +743,8 @@ export default function LembretesPage() {
     }
 
     // ✅ recorrente
-    // mantém compat antigo: se scheduleType ficar "intervalo" e você quiser usar o modo antigo,
-    // ele ainda funciona (scheduleMode). Mas agora o padrão é scheduleType.
     const mdArrOld = parseMonthDaysList(monthDaysText);
 
-    // valida novo tipo
     if (scheduleType === "semanal" && (!Array.isArray(weekdays) || weekdays.length === 0)) {
       return toastMsg("Marque pelo menos 1 dia da semana.");
     }
@@ -714,23 +760,19 @@ export default function LembretesPage() {
       if (!arr.length) return toastMsg("Informe pelo menos 1 data no personalizado.");
     }
 
-    // itemLike para calcular next
     const itemLike = {
       tipo: "recorrente",
-      // novo
       scheduleType,
       weekdays: weekdays || [],
       diaMes: Number(diaMes || 1),
       dataBaseYMD: dataBaseYMD || "",
       datasFixas: parseFixedDatesList(datasFixasText),
-      // intervalo
       every: String(Math.max(1, Number(every || 1))),
       unit,
       timeHHmm,
       nivel,
       conflictMode,
 
-      // compat antigo
       scheduleMode,
       monthDays: mdArrOld,
       noSameDay: conflictMode === "shift",
@@ -748,7 +790,6 @@ export default function LembretesPage() {
       tipo: "recorrente",
       titulo: t,
 
-      // novo
       scheduleType,
       weekdays: itemLike.weekdays,
       diaMes: itemLike.diaMes,
@@ -757,12 +798,10 @@ export default function LembretesPage() {
       nivel,
       conflictMode,
 
-      // intervalo
       every: itemLike.every,
       unit: itemLike.unit,
       timeHHmm: itemLike.timeHHmm,
 
-      // compat antigo (mantém se você quiser continuar usando)
       scheduleMode: itemLike.scheduleMode,
       monthDays: itemLike.monthDays,
       noSameDay: itemLike.noSameDay,
@@ -775,14 +814,11 @@ export default function LembretesPage() {
       updatedAt: nowISO(),
     };
 
-    const next = [item, ...list].sort((a, b) =>
-      String(a.nextDueISO || "").localeCompare(String(b.nextDueISO || ""))
-    );
+    const next = [item, ...list].sort((a, b) => String(a.nextDueISO || "").localeCompare(String(b.nextDueISO || "")));
     save(next);
 
     scheduleInPageNotification(`${item.titulo} hoje`, new Date(item.nextDueISO));
 
-    // reset
     setTitulo("");
     setScheduleType("intervalo");
     setEvery("3");
@@ -818,7 +854,6 @@ export default function LembretesPage() {
       if (i.tipo !== "recorrente") return i;
 
       const base = new Date();
-
       const computed = computeNextDueWithConflict(i, base, list, i.id);
 
       if (computed && computed.__conflict) {
@@ -852,7 +887,6 @@ export default function LembretesPage() {
       const computed = computeNextDueWithConflict(i, new Date(), list, i.id);
 
       if (computed && computed.__conflict) return { ...i, paidAt: nowISO(), lastNotifiedDate: todayKey, updatedAt: nowISO() };
-
       if (!computed || !computed.toISOString) return i;
 
       count += 1;
@@ -896,7 +930,6 @@ export default function LembretesPage() {
       setEditingNivel(item.nivel || "rapido");
       setEditingConflictMode(item.conflictMode || "allow");
 
-      // reset recorrente
       setEditingScheduleType("intervalo");
       setEditingEvery("3");
       setEditingUnit("dias");
@@ -906,20 +939,17 @@ export default function LembretesPage() {
       setEditingDataBaseYMD("");
       setEditingDatasFixasText("2026-02-05, 2026-03-10");
 
-      // compat antigo
       setEditingScheduleMode("interval");
       setEditingMonthDaysText("5, 15, 25");
       setEditingNoSameDay(false);
       return;
     }
 
-    // recorrente
     setEditingQuando("");
 
     setEditingNivel(item.nivel || "rapido");
     setEditingConflictMode(item.conflictMode || (item.noSameDay ? "shift" : "allow"));
 
-    // novo
     setEditingScheduleType(item.scheduleType || "intervalo");
     setEditingEvery(String(item.every || "3"));
     setEditingUnit(item.unit || "dias");
@@ -929,11 +959,8 @@ export default function LembretesPage() {
     setEditingDataBaseYMD(item.dataBaseYMD || "");
     setEditingDatasFixasText(Array.isArray(item.datasFixas) && item.datasFixas.length ? item.datasFixas.join(", ") : "2026-02-05, 2026-03-10");
 
-    // compat antigo
     setEditingScheduleMode(item.scheduleMode || "interval");
-    setEditingMonthDaysText(
-      Array.isArray(item.monthDays) && item.monthDays.length ? item.monthDays.join(", ") : "5, 15, 25"
-    );
+    setEditingMonthDaysText(Array.isArray(item.monthDays) && item.monthDays.length ? item.monthDays.join(", ") : "5, 15, 25");
     setEditingNoSameDay(item.noSameDay === true);
   }
 
@@ -992,7 +1019,6 @@ export default function LembretesPage() {
         };
       }
 
-      // ✅ recorrente: valida e recalcula
       const cm = editingConflictMode || (editingNoSameDay ? "shift" : "allow");
       const st = editingScheduleType || i.scheduleType || "intervalo";
 
@@ -1036,7 +1062,6 @@ export default function LembretesPage() {
         nivel: editingNivel || "rapido",
         conflictMode: cm,
 
-        // compat antigo preservado
         scheduleMode: editingScheduleMode,
         monthDays: parseMonthDaysList(editingMonthDaysText),
         noSameDay: cm === "shift",
@@ -1131,7 +1156,6 @@ export default function LembretesPage() {
     const q = normalizeText(search);
     let base = list;
 
-    // tabs
     if (tab !== "all") {
       base = base.filter((i) => {
         if (i.tipo === "avulso") return tab === "done" ? i.done : !i.done;
@@ -1139,14 +1163,10 @@ export default function LembretesPage() {
       });
     }
 
-    // range: today/week
     if (range !== "all") {
       const now = new Date();
       const from = startOfDay(now);
-      const to =
-        range === "today"
-          ? endOfDay(now)
-          : endOfDay(addDays(now, 6)); // 7 dias incluindo hoje
+      const to = range === "today" ? endOfDay(now) : endOfDay(addDays(now, 6));
 
       base = base.filter((i) => {
         if (i.tipo === "avulso") {
@@ -1167,14 +1187,15 @@ export default function LembretesPage() {
 
     if (q) base = base.filter((i) => normalizeText(i.titulo).includes(q));
 
-    return base.slice().sort((a, b) => {
-      const ax = a.tipo === "recorrente" ? (a.nextDueISO || "") : (a.quando || "");
-      const bx = b.tipo === "recorrente" ? (b.nextDueISO || "") : (b.quando || "");
-      return String(ax).localeCompare(String(bx));
-    });
+    return base
+      .slice()
+      .sort((a, b) => {
+        const ax = a.tipo === "recorrente" ? (a.nextDueISO || "") : (a.quando || "");
+        const bx = b.tipo === "recorrente" ? (b.nextDueISO || "") : (b.quando || "");
+        return String(ax).localeCompare(String(bx));
+      });
   }, [list, tab, search, range]);
 
-  // helpers UI: toggle weekday
   function toggleWeekday(arr, d) {
     const set = new Set(Array.isArray(arr) ? arr : []);
     if (set.has(d)) set.delete(d);
@@ -1218,6 +1239,9 @@ export default function LembretesPage() {
           <h2 className="page-title">⏰ Lembretes</h2>
           <p className="muted small" style={{ marginTop: 6 }}>
             Avulsos + recorrentes (diário, semanal, mensal, aniversário, datas fixas)
+          </p>
+          <p className="muted small" style={{ marginTop: 6 }}>
+            {uid ? "☁️ Online: sincronizando com sua conta" : "📵 Offline: salvando só no aparelho (faça login para sincronizar)"}
           </p>
         </div>
 
@@ -1423,12 +1447,7 @@ export default function LembretesPage() {
             {scheduleType === "mensal" ? (
               <div className="field" style={{ marginTop: 12 }}>
                 <label>Dia do mês</label>
-                <input
-                  value={diaMes}
-                  onChange={(e) => setDiaMes(e.target.value)}
-                  inputMode="numeric"
-                  placeholder="Ex: 5"
-                />
+                <input value={diaMes} onChange={(e) => setDiaMes(e.target.value)} inputMode="numeric" placeholder="Ex: 5" />
                 <div className="muted small" style={{ marginTop: 6 }}>
                   Se o mês não tiver esse dia, ele usa o último dia do mês.
                 </div>
@@ -1438,29 +1457,20 @@ export default function LembretesPage() {
             {scheduleType === "aniversario" ? (
               <div className="field" style={{ marginTop: 12 }}>
                 <label>Data do aniversário</label>
-                <input
-                  type="date"
-                  value={dataBaseYMD}
-                  onChange={(e) => setDataBaseYMD(e.target.value)}
-                />
+                <input type="date" value={dataBaseYMD} onChange={(e) => setDataBaseYMD(e.target.value)} />
               </div>
             ) : null}
 
             {scheduleType === "personalizado" ? (
               <div className="field" style={{ marginTop: 12 }}>
                 <label>Datas fixas (YYYY-MM-DD)</label>
-                <input
-                  value={datasFixasText}
-                  onChange={(e) => setDatasFixasText(e.target.value)}
-                  placeholder="Ex: 2026-02-05, 2026-03-10"
-                />
+                <input value={datasFixasText} onChange={(e) => setDatasFixasText(e.target.value)} placeholder="Ex: 2026-02-05, 2026-03-10" />
                 <div className="muted small" style={{ marginTop: 6 }}>
                   Separe por vírgula ou quebra de linha.
                 </div>
               </div>
             ) : null}
 
-            {/* compat antigo: você pode esconder depois, mas mantive pra não quebrar */}
             <div className="muted small" style={{ marginTop: 12, opacity: 0.75 }}>
               (Compatibilidade: seus recorrentes antigos continuam funcionando mesmo sem mexer neles.)
             </div>
