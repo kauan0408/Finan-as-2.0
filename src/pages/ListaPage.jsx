@@ -1,11 +1,13 @@
 // src/pages/ListaPage.jsx
 
 // Importa React e hooks usados na página:
-// - useState: estados da UI e do armazenamento
-// - useEffect: efeitos (carregar do localStorage, limpar toast, auto-clean etc.)
-// - useMemo: memoriza cálculos (itens visíveis, progresso, ordenação)
-// - useRef: guardar referência do SpeechRecognition e buffers sem re-render
 import React, { useEffect, useMemo, useRef, useState } from "react";
+
+// ✅ Firebase (online sync)
+// Ajuste o caminho se o seu firebase estiver em outro lugar
+import { auth, db } from "../firebase";
+import { onAuthStateChanged } from "firebase/auth";
+import { doc, getDoc, setDoc } from "firebase/firestore";
 
 // Chave do localStorage onde a versão atual (v2) das listas é salva
 const LS_KEY = "pwa_listas_v2";
@@ -23,8 +25,6 @@ function safeJSONParse(v, fallback) {
 }
 
 // Gera um ID único:
-// - se o browser suportar crypto.randomUUID, usa ele (melhor)
-// - senão cria um id baseado em aleatório + timestamp
 function uuid() {
   if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
   return "id_" + Math.random().toString(16).slice(2) + Date.now().toString(16);
@@ -36,9 +36,6 @@ function nowISO() {
 }
 
 // Normaliza texto para facilitar comparação/busca:
-// - trim
-// - minúsculo
-// - remove acentos (NFD + remove diacríticos)
 function normalizeText(s) {
   return String(s || "")
     .trim()
@@ -48,11 +45,6 @@ function normalizeText(s) {
 }
 
 // Calcula progresso de uma lista:
-// - total: total de itens
-// - done: concluídos
-// - issue: com problema
-// - pending: pendentes (o resto)
-// - percent: % concluído (done/total)
 function calcProgress(items) {
   const total = items.length;
   const done = items.filter((i) => i.status === "done").length;
@@ -63,7 +55,6 @@ function calcProgress(items) {
 }
 
 // Formata uma data ISO para pt-BR (somente data)
-// Se vier vazio ou erro, retorna ""
 function fmtDate(iso) {
   if (!iso) return "";
   try {
@@ -74,11 +65,6 @@ function fmtDate(iso) {
   }
 }
 
-/** quebra em itens por vírgula/; e também por palavra "vírgula" dita no áudio */
-// Recebe texto bruto (digitado ou falado) e transforma em array de itens:
-// - substitui "virgula"/"vírgula" por ","
-// - separa por , ou ;
-// - tira espaços e remove vazios
 function splitIntoItems(raw) {
   const s = String(raw || "")
     .replace(/\bvirgula\b/gi, ",")
@@ -91,11 +77,7 @@ function splitIntoItems(raw) {
 
 /* ---------------- UI pieces (Modal / Toast) ---------------- */
 
-// Componente de Modal genérico:
-// - fecha no clique fora (overlay) e no ESC
-// - usa children como conteúdo
 function Modal({ open, title, children, onClose }) {
-  // Quando abre, registra listener do ESC; quando fecha/desmonta, remove
   useEffect(() => {
     if (!open) return;
     const onKey = (e) => {
@@ -105,35 +87,28 @@ function Modal({ open, title, children, onClose }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  // Se não está aberto, não renderiza nada
   if (!open) return null;
 
   return (
-    // Overlay: clicar fora fecha
     <div className="modal-overlay" role="dialog" aria-modal="true" onMouseDown={onClose}>
-      {/* Card: impede clique dentro de fechar (stopPropagation) */}
       <div className="modal-card" onMouseDown={(e) => e.stopPropagation()}>
-        {/* Cabeçalho do modal: título + botão de fechar */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
           <strong style={{ fontSize: 14 }}>{title}</strong>
           <button type="button" className="icon-btn" onClick={onClose} aria-label="Fechar" title="Fechar">
             ✕
           </button>
         </div>
-        {/* Conteúdo */}
         <div style={{ marginTop: 12, textAlign: "left" }}>{children}</div>
       </div>
     </div>
   );
 }
 
-// Toast simples: aparece só se tiver texto
 function Toast({ text }) {
   if (!text) return null;
   return <div className="toast">{text}</div>;
 }
 
-// Barra de progresso: recebe percent e ajusta largura do preenchimento
 function ProgressBar({ percent }) {
   return (
     <div className="progress-bar" aria-label={`Progresso ${percent}%`}>
@@ -142,7 +117,6 @@ function ProgressBar({ percent }) {
   );
 }
 
-// Aba (chip) clicável: destaca se active=true
 function Tab({ active, label, onClick }) {
   return (
     <button type="button" onClick={onClick} className={"chip " + (active ? "chip-active" : "")}>
@@ -154,11 +128,6 @@ function Tab({ active, label, onClick }) {
 /* -------------------- Page -------------------- */
 
 export default function ListaPage() {
-  // Estado principal "store" (a base do app de listas):
-  // version: número para controlar migrações
-  // lists: objeto { [id]: {id,title,type,createdAt,completedAt} }
-  // items: objeto { [listId]: [ {id,text,status,createdAt,doneAt,note} ] }
-  // ui: coisas de UI persistidas (qual lista está selecionada)
   const [store, setStore] = useState({
     version: 2,
     lists: {},
@@ -166,40 +135,23 @@ export default function ListaPage() {
     ui: { selectedListId: null },
   });
 
-  // UI state
-  // Texto do input de adicionar item
+  // ✅ ONLINE state
+  const [uid, setUid] = useState(null);
+  const [cloudReady, setCloudReady] = useState(false);
+
   const [newItemText, setNewItemText] = useState("");
-
-  // Texto de busca/filtro
   const [search, setSearch] = useState("");
-
-  // Aba atual: pending | done | issue | all
-  const [tab, setTab] = useState("pending"); // pending | done | issue | all
-
-  // Texto atual do toast (mensagem rápida)
+  const [tab, setTab] = useState("pending");
   const [toastText, setToastText] = useState("");
 
-  // Modals
-  // Modal de criar lista
   const [modalCreateOpen, setModalCreateOpen] = useState(false);
-
-  // Campo nome da lista no modal de criação
   const [createTitle, setCreateTitle] = useState("");
+  const [createType, setCreateType] = useState("compras");
 
-  // Tipo no modal de criação: compras | tarefas
-  const [createType, setCreateType] = useState("compras"); // compras | tarefas
-
-  // Modal de renomear lista
   const [modalRenameOpen, setModalRenameOpen] = useState(false);
-
-  // Campo novo nome no modal de renomear
   const [renameTitle, setRenameTitle] = useState("");
 
-  // Modal de confirmação genérico (excluir, resetar, limpar etc.)
   const [confirmOpen, setConfirmOpen] = useState(false);
-
-  // Configuração do modal de confirmação:
-  // title/body/danger/action
   const [confirmCfg, setConfirmCfg] = useState({
     title: "",
     body: "",
@@ -207,51 +159,15 @@ export default function ListaPage() {
     action: null,
   });
 
-  // ✅ Menu dos 3 pontos agora é MODAL
-  // Abre/fecha o modal com ações da lista
   const [menuModalOpen, setMenuModalOpen] = useState(false);
 
-  // edit item
-  // ID do item que está sendo editado (ou null)
   const [editingId, setEditingId] = useState(null);
-
-  // Texto do input quando edita um item
   const [editingText, setEditingText] = useState("");
 
-  // voice (ACUMULA, NÃO LANÇA SOZINHO)
-  // Flag se está gravando no microfone
   const [isListening, setIsListening] = useState(false);
-
-  // Referência do objeto SpeechRecognition em uso
   const recRef = useRef(null);
-
-  // Buffer que acumula o texto final reconhecido (sem forçar re-render)
-  const voiceFinalRef = useRef(""); // acumula o texto final
-
-  // Flag para evitar loops ao reiniciar o reconhecimento no onend
-  const restartingRef = useRef(false); // evita loops estranhos
-
-  // Salva o store:
-  // - atualiza o estado React
-  // - grava no localStorage
-  function save(next) {
-    setStore(next);
-    localStorage.setItem(LS_KEY, JSON.stringify(next));
-  }
-
-  // Mostra uma mensagem no toast
-  function toastMsg(texto) {
-    setToastText(texto);
-  }
-
-  // Toast helper
-  // Quando toastText muda e não é vazio:
-  // - inicia timer para limpar depois de 2,2s
-  useEffect(() => {
-    if (!toastText) return;
-    const t = setTimeout(() => setToastText(""), 2200);
-    return () => clearTimeout(t);
-  }, [toastText]);
+  const voiceFinalRef = useRef("");
+  const restartingRef = useRef(false);
 
   // ---- Auto-clean: delete lists 100% done after 1 week
   function cleanupAutoDeleteLists(currentStore) {
@@ -299,72 +215,143 @@ export default function ListaPage() {
     };
   }
 
-  // ---- Load + Migration + Cleanup
+  /* -------------------- ✅ FIRESTORE helpers -------------------- */
+
+  function cloudDocRef(userId) {
+    // users/{uid}/pwa/listas
+    return doc(db, "users", userId, "pwa", "listas");
+  }
+
+  async function loadFromCloud(userId) {
+    try {
+      const ref = cloudDocRef(userId);
+      const snap = await getDoc(ref);
+      if (!snap.exists()) return null;
+      const data = snap.data();
+      if (!data || !data.store) return null;
+      return data.store;
+    } catch {
+      return null;
+    }
+  }
+
+  async function saveToCloud(userId, nextStore) {
+    try {
+      const ref = cloudDocRef(userId);
+      await setDoc(ref, { store: nextStore, updatedAt: nowISO() }, { merge: true });
+    } catch {
+      // offline/erro: silencioso
+    }
+  }
+
+  // ✅ Salva (local + cloud se logada)
+  function save(next) {
+    setStore(next);
+    localStorage.setItem(LS_KEY, JSON.stringify(next));
+
+    if (uid && cloudReady) {
+      saveToCloud(uid, next);
+    }
+  }
+
+  function toastMsg(texto) {
+    setToastText(texto);
+  }
+
   useEffect(() => {
+    if (!toastText) return;
+    const t = setTimeout(() => setToastText(""), 2200);
+    return () => clearTimeout(t);
+  }, [toastText]);
+
+  // ---- Load + Migration + Cleanup + ✅ Cloud load depois
+  useEffect(() => {
+    // 1) carrega local primeiro (offline-first)
     const v2 = safeJSONParse(localStorage.getItem(LS_KEY) || "null", null);
     if (v2 && v2.version === 2 && v2.lists && v2.items) {
       const cleaned = cleanupAutoDeleteLists(v2);
       localStorage.setItem(LS_KEY, JSON.stringify(cleaned));
       setStore(cleaned);
-      return;
+    } else {
+      const legacy = safeJSONParse(localStorage.getItem("pwa_listas_v1") || "null", null);
+      if (legacy && typeof legacy === "object" && !Array.isArray(legacy)) {
+        const lists = {};
+        const items = {};
+        const ids = [];
+
+        for (const title of Object.keys(legacy)) {
+          const listId = uuid();
+          ids.push(listId);
+
+          lists[listId] = {
+            id: listId,
+            title,
+            type: "compras",
+            createdAt: nowISO(),
+            completedAt: null,
+          };
+
+          const legacyItems = Array.isArray(legacy[title]) ? legacy[title] : [];
+          items[listId] = legacyItems.map((it) => ({
+            id: it.id || uuid(),
+            text: String(it.text || ""),
+            status: it.done ? "done" : "pending",
+            createdAt: nowISO(),
+            doneAt: it.done ? nowISO() : null,
+            note: "",
+          }));
+        }
+
+        const selected = ids[0] || null;
+
+        let migrated = { version: 2, lists, items, ui: { selectedListId: selected } };
+        migrated = cleanupAutoDeleteLists(migrated);
+
+        localStorage.setItem(LS_KEY, JSON.stringify(migrated));
+        setStore(migrated);
+      } else {
+        const defaultId = uuid();
+        const fresh = {
+          version: 2,
+          lists: {
+            [defaultId]: {
+              id: defaultId,
+              title: "Mercado",
+              type: "compras",
+              createdAt: nowISO(),
+              completedAt: null,
+            },
+          },
+          items: { [defaultId]: [] },
+          ui: { selectedListId: defaultId },
+        };
+        localStorage.setItem(LS_KEY, JSON.stringify(fresh));
+        setStore(fresh);
+      }
     }
 
-    const legacy = safeJSONParse(localStorage.getItem("pwa_listas_v1") || "null", null);
-    if (legacy && typeof legacy === "object" && !Array.isArray(legacy)) {
-      const lists = {};
-      const items = {};
-      const ids = [];
+    // 2) observa login e carrega cloud (cloud “ganha”)
+    const unsub = onAuthStateChanged(auth, async (user) => {
+      const userId = user?.uid || null;
+      setUid(userId);
 
-      for (const title of Object.keys(legacy)) {
-        const listId = uuid();
-        ids.push(listId);
-
-        lists[listId] = {
-          id: listId,
-          title,
-          type: "compras",
-          createdAt: nowISO(),
-          completedAt: null,
-        };
-
-        const legacyItems = Array.isArray(legacy[title]) ? legacy[title] : [];
-        items[listId] = legacyItems.map((it) => ({
-          id: it.id || uuid(),
-          text: String(it.text || ""),
-          status: it.done ? "done" : "pending",
-          createdAt: nowISO(),
-          doneAt: it.done ? nowISO() : null,
-          note: "",
-        }));
+      if (!userId) {
+        setCloudReady(true);
+        return;
       }
 
-      const selected = ids[0] || null;
+      const cloudStore = await loadFromCloud(userId);
+      if (cloudStore && cloudStore.version === 2 && cloudStore.lists && cloudStore.items) {
+        const cleanedCloud = cleanupAutoDeleteLists(cloudStore);
+        setStore(cleanedCloud);
+        localStorage.setItem(LS_KEY, JSON.stringify(cleanedCloud));
+      }
 
-      let migrated = { version: 2, lists, items, ui: { selectedListId: selected } };
-      migrated = cleanupAutoDeleteLists(migrated);
+      setCloudReady(true);
+    });
 
-      localStorage.setItem(LS_KEY, JSON.stringify(migrated));
-      setStore(migrated);
-      return;
-    }
-
-    const defaultId = uuid();
-    const fresh = {
-      version: 2,
-      lists: {
-        [defaultId]: {
-          id: defaultId,
-          title: "Mercado",
-          type: "compras",
-          createdAt: nowISO(),
-          completedAt: null,
-        },
-      },
-      items: { [defaultId]: [] },
-      ui: { selectedListId: defaultId },
-    };
-    localStorage.setItem(LS_KEY, JSON.stringify(fresh));
-    setStore(fresh);
+    return () => unsub();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // cleanup on changes
@@ -773,6 +760,9 @@ export default function ListaPage() {
           <p className="muted small" style={{ marginTop: 6 }}>
             Compras e tarefas, com progresso
           </p>
+          <p className="muted small" style={{ marginTop: 6 }}>
+            {uid ? "☁️ Online: salvando na conta" : "📵 Offline: salvando só no aparelho (faça login para salvar online)"}
+          </p>
         </div>
 
         <button type="button" className="primary-btn" style={{ width: "auto" }} onClick={openCreateModal}>
@@ -1105,7 +1095,6 @@ export default function ListaPage() {
       <Modal open={menuModalOpen} title="Ações da lista" onClose={() => setMenuModalOpen(false)}>
         {selectedList ? (
           <>
-            {/* ✅ “feche data” (datas dentro do modal) */}
             <div className="card" style={{ padding: 12, marginBottom: 12 }}>
               <div className="muted small">
                 Criada em: <strong>{fmtDate(selectedList.createdAt)}</strong>
@@ -1120,7 +1109,6 @@ export default function ListaPage() {
               ) : null}
             </div>
 
-            {/* Botões do menu */}
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {menuItems.map((it) => (
                 <button
@@ -1170,10 +1158,18 @@ export default function ListaPage() {
         <div className="field">
           <label>Tipo</label>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <button type="button" onClick={() => setCreateType("compras")} className={"chip " + (createType === "compras" ? "chip-active" : "")}>
+            <button
+              type="button"
+              onClick={() => setCreateType("compras")}
+              className={"chip " + (createType === "compras" ? "chip-active" : "")}
+            >
               🛒 Compras
             </button>
-            <button type="button" onClick={() => setCreateType("tarefas")} className={"chip " + (createType === "tarefas" ? "chip-active" : "")}>
+            <button
+              type="button"
+              onClick={() => setCreateType("tarefas")}
+              className={"chip " + (createType === "tarefas" ? "chip-active" : "")}
+            >
               🧩 Tarefas
             </button>
           </div>
