@@ -254,40 +254,30 @@ export default function ListaPage() {
   }, [toastText]);
 
   // ---- Auto-clean: delete lists 100% done after 1 week
-  // Remove automaticamente listas que ficaram 100% concluídas por 7 dias:
-  // - se percent=100 e completedAt não existe -> define completedAt agora
-  // - se percent=100 e completedAt existe -> se passou 1 semana -> apaga lista e seus itens
-  // - se percent<100 e completedAt existia -> limpa completedAt (lista "reaberta")
   function cleanupAutoDeleteLists(currentStore) {
     const now = Date.now();
     const nextLists = { ...currentStore.lists };
     const nextItems = { ...currentStore.items };
     let changed = false;
 
-    // Varre todas as listas
     for (const listId of Object.keys(nextLists)) {
       const list = nextLists[listId];
       const items = Array.isArray(nextItems[listId]) ? nextItems[listId] : [];
       const p = calcProgress(items);
 
-      // Se tem itens e está 100% concluída
       if (p.total > 0 && p.percent === 100) {
-        // Se ainda não marcou a data de conclusão, marca agora
         if (!list.completedAt) {
           nextLists[listId] = { ...list, completedAt: nowISO() };
           changed = true;
         } else {
-          // Se já tem completedAt, checa se passou 1 semana
           const completedMs = new Date(list.completedAt).getTime();
           if (!isNaN(completedMs) && now - completedMs >= ONE_WEEK_MS) {
-            // Apaga lista e seus itens
             delete nextLists[listId];
             delete nextItems[listId];
             changed = true;
           }
         }
       } else {
-        // Se não está 100% e tinha completedAt, remove a marca (voltou a ter pendentes)
         if (list.completedAt) {
           nextLists[listId] = { ...list, completedAt: null };
           changed = true;
@@ -295,15 +285,12 @@ export default function ListaPage() {
       }
     }
 
-    // Se nada mudou, retorna o store original
     if (!changed) return currentStore;
 
-    // Se apagou listas, precisa garantir que a lista selecionada continue válida
     const remainingIds = Object.keys(nextLists);
     const selected = currentStore.ui.selectedListId;
     const nextSelected = selected && nextLists[selected] ? selected : remainingIds[0] || null;
 
-    // Retorna store atualizado com seleção corrigida
     return {
       ...currentStore,
       lists: nextLists,
@@ -313,35 +300,25 @@ export default function ListaPage() {
   }
 
   // ---- Load + Migration + Cleanup
-  // Ao montar a página:
-  // 1) tenta carregar v2 do localStorage
-  // 2) se não existir, tenta migrar do legado v1
-  // 3) se não existir nada, cria lista padrão "Mercado"
   useEffect(() => {
-    // Tenta carregar o v2
     const v2 = safeJSONParse(localStorage.getItem(LS_KEY) || "null", null);
     if (v2 && v2.version === 2 && v2.lists && v2.items) {
-      // Limpa automaticamente (auto-delete) e salva de volta
       const cleaned = cleanupAutoDeleteLists(v2);
       localStorage.setItem(LS_KEY, JSON.stringify(cleaned));
       setStore(cleaned);
       return;
     }
 
-    // Tenta carregar legado v1 (pwa_listas_v1)
     const legacy = safeJSONParse(localStorage.getItem("pwa_listas_v1") || "null", null);
     if (legacy && typeof legacy === "object" && !Array.isArray(legacy)) {
-      // Estruturas novas
       const lists = {};
       const items = {};
       const ids = [];
 
-      // No legado, as chaves eram títulos de listas
       for (const title of Object.keys(legacy)) {
         const listId = uuid();
         ids.push(listId);
 
-        // Cria lista com tipo default "compras"
         lists[listId] = {
           id: listId,
           title,
@@ -350,7 +327,6 @@ export default function ListaPage() {
           completedAt: null,
         };
 
-        // Migra itens do legado
         const legacyItems = Array.isArray(legacy[title]) ? legacy[title] : [];
         items[listId] = legacyItems.map((it) => ({
           id: it.id || uuid(),
@@ -362,22 +338,16 @@ export default function ListaPage() {
         }));
       }
 
-      // Seleciona a primeira lista migrada
       const selected = ids[0] || null;
 
-      // Store migrado para v2
       let migrated = { version: 2, lists, items, ui: { selectedListId: selected } };
-
-      // Aplica auto-clean também no migrado
       migrated = cleanupAutoDeleteLists(migrated);
 
-      // Salva e seta estado
       localStorage.setItem(LS_KEY, JSON.stringify(migrated));
       setStore(migrated);
       return;
     }
 
-    // Se não tem nada, cria um store novo com uma lista padrão "Mercado"
     const defaultId = uuid();
     const fresh = {
       version: 2,
@@ -398,9 +368,6 @@ export default function ListaPage() {
   }, []);
 
   // cleanup on changes
-  // Sempre que mudar lists/items:
-  // - roda cleanupAutoDeleteLists
-  // - se o cleanup alterou algo, salva de volta
   useEffect(() => {
     if (!store || store.version !== 2) return;
     const cleaned = cleanupAutoDeleteLists(store);
@@ -408,35 +375,23 @@ export default function ListaPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store.lists, store.items]);
 
-  // Selected list
-  // ID da lista selecionada na UI
   const selectedListId = store.ui.selectedListId;
-
-  // Objeto da lista selecionada (ou null)
   const selectedList = selectedListId ? store.lists[selectedListId] : null;
 
-  // Itens da lista selecionada (sempre array)
   const listItems = useMemo(() => {
     if (!selectedListId) return [];
     return Array.isArray(store.items[selectedListId]) ? store.items[selectedListId] : [];
   }, [store.items, selectedListId]);
 
-  // Progresso calculado da lista selecionada
   const progress = useMemo(() => calcProgress(listItems), [listItems]);
 
-  // Texto do botão "feito": muda conforme tipo da lista
   const ctaDoneLabel = selectedList?.type === "tarefas" ? "Já feito" : "Já comprado";
 
-  // Ordena as listas para exibir no seletor (mais recentes primeiro)
   const listOrder = useMemo(() => {
     const arr = Object.values(store.lists);
     return arr.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
   }, [store.lists]);
 
-  // Calcula os itens que devem aparecer na tela:
-  // - aplica filtro da aba (pending/done/issue/all)
-  // - aplica busca pelo texto
-  // - se tab=all, ordena por status (pending -> issue -> done)
   const visibleItems = useMemo(() => {
     const q = normalizeText(search);
     let base = listItems;
@@ -451,11 +406,6 @@ export default function ListaPage() {
     return base;
   }, [listItems, tab, search]);
 
-  // Atualiza os itens da lista selecionada:
-  // - recalcula progresso
-  // - marca completedAt se ficou 100%
-  // - limpa completedAt se voltou a ter pendentes
-  // - salva no store + localStorage
   function updateItems(nextItems) {
     if (!selectedListId) return;
 
@@ -477,11 +427,6 @@ export default function ListaPage() {
     save(nextStore);
   }
 
-  // Troca a lista selecionada:
-  // - para a voz
-  // - fecha o menu modal
-  // - atualiza selectedListId
-  // - reseta filtros e edição
   function setSelectedList(id) {
     stopVoice(true);
     setMenuModalOpen(false);
@@ -495,17 +440,12 @@ export default function ListaPage() {
   }
 
   // ---------- List actions ----------
-  // Abre modal de criar lista resetando campos
   function openCreateModal() {
     setCreateTitle("");
     setCreateType("compras");
     setModalCreateOpen(true);
   }
 
-  // Cria lista nova:
-  // - valida título
-  // - se já existe lista com mesmo nome (normalizado), seleciona a existente
-  // - senão cria id e salva
   function createList() {
     const title = createTitle.trim();
     if (!title) return toastMsg("Digite um nome para a lista.");
@@ -534,16 +474,12 @@ export default function ListaPage() {
     toastMsg("Lista criada.");
   }
 
-  // Abre modal para renomear lista atual
   function openRenameModal() {
     if (!selectedList) return;
     setRenameTitle(selectedList.title);
     setModalRenameOpen(true);
   }
 
-  // Renomeia lista:
-  // - valida título
-  // - salva alterando apenas title
   function renameList() {
     if (!selectedList) return;
     const title = renameTitle.trim();
@@ -557,7 +493,6 @@ export default function ListaPage() {
     toastMsg("Lista renomeada.");
   }
 
-  // Alterna tipo da lista (compras <-> tarefas)
   function toggleListType() {
     if (!selectedList) return;
     const nextType = selectedList.type === "compras" ? "tarefas" : "compras";
@@ -568,7 +503,6 @@ export default function ListaPage() {
     toastMsg("Tipo da lista alterado.");
   }
 
-  // Abre confirmação para excluir a lista atual
   function askDeleteList() {
     if (!selectedList) return;
     setConfirmCfg({
@@ -576,13 +510,11 @@ export default function ListaPage() {
       body: `Tem certeza que quer excluir "${selectedList.title}"? Isso apaga todos os itens.`,
       danger: true,
       action: () => {
-        // Remove lista e itens do store
         const nextLists = { ...store.lists };
         const nextItems = { ...store.items };
         delete nextLists[selectedList.id];
         delete nextItems[selectedList.id];
 
-        // Seleciona a primeira lista restante (ou null)
         const remaining = Object.keys(nextLists);
         save({
           ...store,
@@ -597,11 +529,6 @@ export default function ListaPage() {
   }
 
   // ---------- Item actions ----------
-  // Adiciona itens a partir de um texto:
-  // - separa por vírgulas/; (splitIntoItems)
-  // - evita duplicados (por normalizeText)
-  // - adiciona com status pending
-  // - salva e limpa input/buffer de voz
   function addItemsFromText(raw) {
     if (!selectedListId) return;
     const parts = splitIntoItems(raw);
@@ -623,21 +550,16 @@ export default function ListaPage() {
     toastMsg(added > 1 ? `Adicionados ${added} itens.` : added === 1 ? "Item adicionado." : "Nada novo para adicionar.");
   }
 
-  // Atalho: adiciona usando o texto atual do input
   function addItem() {
     addItemsFromText(newItemText);
   }
 
-  // Limpa o input e o buffer de voz
   function clearInput() {
     setNewItemText("");
     voiceFinalRef.current = "";
     toastMsg("Campo limpo.");
   }
 
-  // Muda status de um item (pending/done/issue):
-  // - se done, grava doneAt
-  // - senão, doneAt vira null
   function setStatus(id, status) {
     const next = listItems.map((i) => {
       if (i.id !== id) return i;
@@ -646,7 +568,6 @@ export default function ListaPage() {
     updateItems(next);
   }
 
-  // Abre confirmação para excluir item
   function removeItem(id) {
     setConfirmCfg({
       title: "Excluir item",
@@ -660,9 +581,6 @@ export default function ListaPage() {
     setConfirmOpen(true);
   }
 
-  // Inicia modo de edição de um item:
-  // - impede comportamentos padrão do clique
-  // - seta editingId e texto atual do item
   function startEdit(item, e) {
     e?.preventDefault?.();
     e?.stopPropagation?.();
@@ -670,25 +588,17 @@ export default function ListaPage() {
     setEditingText(item.text);
   }
 
-  // Cancela edição e limpa estados
   function cancelEdit() {
     setEditingId(null);
     setEditingText("");
   }
 
-  // Salva a edição:
-  // - valida texto não vazio
-  // - se tiver vírgulas, pode virar múltiplos itens
-  //   - 1 item: substitui texto do item
-  //   - vários: primeiro substitui e resto vira novos itens
-  // - evita duplicados nos novos itens
   function commitEdit(id) {
     const t = editingText.trim();
     if (!t) return toastMsg("Texto vazio não pode.");
 
     const parts = splitIntoItems(t);
 
-    // 1 item: edita normal
     if (parts.length === 1) {
       updateItems(listItems.map((i) => (i.id === id ? { ...i, text: parts[0] } : i)));
       cancelEdit();
@@ -696,7 +606,6 @@ export default function ListaPage() {
       return;
     }
 
-    // vários itens: o primeiro substitui, o resto vira novos itens
     const first = parts[0];
     const rest = parts.slice(1);
 
@@ -715,8 +624,6 @@ export default function ListaPage() {
     toastMsg(`Atualizado + adicionados ${added} itens.`);
   }
 
-  // quick actions
-  // Pergunta se quer marcar tudo como concluído
   function askMarkAllDone() {
     if (listItems.length === 0) return;
     setConfirmCfg({
@@ -731,7 +638,6 @@ export default function ListaPage() {
     setConfirmOpen(true);
   }
 
-  // Pergunta se quer resetar tudo para pendente
   function askResetAll() {
     if (listItems.length === 0) return;
     setConfirmCfg({
@@ -746,7 +652,6 @@ export default function ListaPage() {
     setConfirmOpen(true);
   }
 
-  // Pergunta se quer apagar todos os concluídos
   function askClearDone() {
     const doneCount = listItems.filter((i) => i.status === "done").length;
     if (doneCount === 0) return toastMsg("Nada para limpar.");
@@ -763,16 +668,10 @@ export default function ListaPage() {
   }
 
   // -------- Voice (SpeechRecognition) --------
-  // Verifica suporte a SpeechRecognition no navegador
   function isSpeechSupported() {
     return typeof window !== "undefined" && (window.SpeechRecognition || window.webkitSpeechRecognition);
   }
 
-  // Para o reconhecimento de voz:
-  // - remove onend (pra não reiniciar)
-  // - tenta parar
-  // - limpa refs/flags
-  // - opcional: mostra toast
   function stopVoice(silent = false) {
     try {
       if (recRef.current) recRef.current.onend = null;
@@ -786,12 +685,6 @@ export default function ListaPage() {
     if (!silent) toastMsg("Voz parada. Revise e clique em Adicionar.");
   }
 
-  // Inicia o reconhecimento de voz:
-  // - cria SpeechRecognition
-  // - configura pt-BR, interimResults e continuous
-  // - acumula textos finais em voiceFinalRef
-  // - mostra preview no input (final + interim)
-  // - faz “quase contínuo” reiniciando no onend
   function startVoice() {
     if (!isSpeechSupported()) {
       toastMsg("Seu navegador não suporta voz (SpeechRecognition).");
@@ -817,31 +710,25 @@ export default function ListaPage() {
     rec.onresult = (e) => {
       let interim = "";
 
-      // Percorre resultados novos
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const text = e.results[i][0]?.transcript || "";
         if (e.results[i].isFinal) {
-          // Texto final entra no buffer permanente
           voiceFinalRef.current += text + " ";
         } else {
-          // Texto parcial (interim) aparece só como preview
           interim += text;
         }
       }
 
-      // Mostra no input: buffer final + interim atual
       const preview = (voiceFinalRef.current + interim).trim();
       setNewItemText(preview);
     };
 
-    // Se der erro (permissão, microfone etc.)
     rec.onerror = () => {
       setIsListening(false);
       toastMsg("Falha ao usar microfone (permissão ou erro).");
     };
 
     rec.onend = () => {
-      // mantém “quase contínuo” sem travar
       if (!restartingRef.current && isListening) {
         restartingRef.current = true;
         setTimeout(() => {
@@ -865,9 +752,6 @@ export default function ListaPage() {
     }
   }
 
-  // Itens do menu (3 pontos)
-  // Se tiver lista selecionada: mostra ações da lista
-  // Se não tiver: só mostra "Nova lista"
   const menuItems = selectedList
     ? [
         { label: "Renomear lista", onClick: openRenameModal },
@@ -880,12 +764,9 @@ export default function ListaPage() {
     : [{ label: "Nova lista", onClick: openCreateModal }];
 
   return (
-    // Container da página
     <div className="page" onClick={() => { /* nada */ }}>
-      {/* Toast flutuante */}
       <Toast text={toastText} />
 
-      {/* Cabeçalho */}
       <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-end" }}>
         <div>
           <h2 className="page-title">📋 Listas</h2>
@@ -894,20 +775,17 @@ export default function ListaPage() {
           </p>
         </div>
 
-        {/* Abre modal de criar lista */}
         <button type="button" className="primary-btn" style={{ width: "auto" }} onClick={openCreateModal}>
           + Nova lista
         </button>
       </div>
 
-      {/* Seletor de listas */}
       <div className="card mt" style={{ padding: 12 }}>
         {listOrder.length === 0 ? (
           <p className="muted">Nenhuma lista ainda.</p>
         ) : (
           <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 6 }}>
             {listOrder.map((l) => {
-              // Progresso de cada lista para exibir no chip
               const p = calcProgress(store.items[l.id] || []);
               const active = l.id === selectedListId;
 
@@ -934,12 +812,10 @@ export default function ListaPage() {
         )}
       </div>
 
-      {/* Se não tem lista selecionada, pede para criar */}
       {!selectedList ? (
         <p className="muted mt">Crie uma lista para começar.</p>
       ) : (
         <>
-          {/* Header da lista */}
           <div className="card mt">
             <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start" }}>
               <div style={{ minWidth: 0 }}>
@@ -950,7 +826,6 @@ export default function ListaPage() {
                   </span>
                 </div>
 
-                {/* Datas de criação e conclusão (se tiver) */}
                 <p className="muted small" style={{ marginTop: 8 }}>
                   Criada em: <strong>{fmtDate(selectedList.createdAt)}</strong>
                   {selectedList.completedAt ? (
@@ -961,7 +836,6 @@ export default function ListaPage() {
                   ) : null}
                 </p>
 
-                {/* Progresso */}
                 <div className="progress-container" style={{ marginTop: 8 }}>
                   <ProgressBar percent={progress.percent} />
                   <div className="progress-label">
@@ -971,7 +845,6 @@ export default function ListaPage() {
                 </div>
               </div>
 
-              {/* ✅ 3 pontinhos abre MODAL */}
               <button
                 type="button"
                 className="icon-btn"
@@ -987,7 +860,6 @@ export default function ListaPage() {
             </div>
           </div>
 
-          {/* Adicionar + voz */}
           <div className="card mt">
             <div className="field">
               <label>Adicionar itens</label>
@@ -1002,7 +874,6 @@ export default function ListaPage() {
               </p>
             </div>
 
-            {/* Botões de ações */}
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <button
                 type="button"
@@ -1046,7 +917,6 @@ export default function ListaPage() {
               </button>
             </div>
 
-            {/* Aviso se o browser não suporta voz */}
             {!isSpeechSupported() ? (
               <p className="muted small" style={{ marginTop: 10, color: "var(--negative)" }}>
                 ⚠️ Voz não suportada neste navegador. (Geralmente funciona no Chrome do Android.)
@@ -1054,7 +924,6 @@ export default function ListaPage() {
             ) : null}
           </div>
 
-          {/* Busca + abas */}
           <div className="card mt">
             <div className="field">
               <label>Buscar</label>
@@ -1069,22 +938,18 @@ export default function ListaPage() {
             </div>
           </div>
 
-          {/* Lista de itens */}
           <div className="card mt">
             {visibleItems.length === 0 ? (
               <p className="muted">{listItems.length === 0 ? "Sua lista está vazia." : "Nada nesse filtro/busca."}</p>
             ) : (
               <ul className="list">
                 {visibleItems.map((i) => {
-                  // Se o id atual é o mesmo do editingId, este item está em modo de edição
                   const isEditing = editingId === i.id;
 
                   return (
                     <li key={i.id} className="list-item" style={{ alignItems: "flex-start" }}>
                       <div style={{ display: "flex", gap: 10, flex: 1, minWidth: 0 }}>
-                        {/* Botões de status */}
                         <div style={{ display: "flex", gap: 8, paddingTop: 2 }}>
-                          {/* Toggle done/pending */}
                           <button
                             type="button"
                             className={"chip " + (i.status === "done" ? "chip-active" : "")}
@@ -1098,7 +963,6 @@ export default function ListaPage() {
                             ✓
                           </button>
 
-                          {/* Toggle issue/pending */}
                           <button
                             type="button"
                             className={"chip " + (i.status === "issue" ? "chip-active" : "")}
@@ -1117,11 +981,9 @@ export default function ListaPage() {
                           </button>
                         </div>
 
-                        {/* Conteúdo do item */}
                         <div style={{ flex: 1, minWidth: 0 }}>
                           {!isEditing ? (
                             <>
-                              {/* Texto do item (com estilos conforme status) */}
                               <div
                                 style={{
                                   wordBreak: "break-word",
@@ -1134,7 +996,6 @@ export default function ListaPage() {
                                 {i.text}
                               </div>
 
-                              {/* Linha de metadados */}
                               <div className="muted small" style={{ marginTop: 6 }}>
                                 {i.status === "done" ? "Concluído" : i.status === "issue" ? "Com problema" : "Pendente"}
                                 {" • "}Criado: {fmtDate(i.createdAt)}
@@ -1142,13 +1003,11 @@ export default function ListaPage() {
                               </div>
                             </>
                           ) : (
-                            // Modo edição
                             <div style={{ marginTop: 2 }}>
                               <div className="muted small" style={{ marginBottom: 6 }}>
                                 Editando (vírgula = vários itens)
                               </div>
 
-                              {/* Input de edição */}
                               <input
                                 value={editingText}
                                 onChange={(e) => setEditingText(e.target.value)}
@@ -1156,7 +1015,6 @@ export default function ListaPage() {
                                 autoFocus
                               />
 
-                              {/* Botões salvar/cancelar */}
                               <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 10, flexWrap: "wrap" }}>
                                 <button
                                   type="button"
@@ -1183,7 +1041,6 @@ export default function ListaPage() {
                                 </button>
                               </div>
 
-                              {/* Metadados em modo edição também */}
                               <div className="muted small" style={{ marginTop: 8 }}>
                                 {i.status === "done" ? "Concluído" : i.status === "issue" ? "Com problema" : "Pendente"}
                                 {" • "}Criado: {fmtDate(i.createdAt)}
@@ -1194,7 +1051,6 @@ export default function ListaPage() {
                         </div>
                       </div>
 
-                      {/* Coluna de ações (editar/excluir) */}
                       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                         {!isEditing ? (
                           <button
@@ -1223,7 +1079,6 @@ export default function ListaPage() {
                           </button>
                         )}
 
-                        {/* Excluir item */}
                         <button
                           type="button"
                           className="chip btn-danger"
@@ -1247,11 +1102,7 @@ export default function ListaPage() {
       )}
 
       {/* ---------- MODAL DO MENU (3 pontinhos) ---------- */}
-      <Modal
-        open={menuModalOpen}
-        title="Ações da lista"
-        onClose={() => setMenuModalOpen(false)}
-      >
+      <Modal open={menuModalOpen} title="Ações da lista" onClose={() => setMenuModalOpen(false)}>
         {selectedList ? (
           <>
             {/* ✅ “feche data” (datas dentro do modal) */}
@@ -1260,8 +1111,7 @@ export default function ListaPage() {
                 Criada em: <strong>{fmtDate(selectedList.createdAt)}</strong>
               </div>
               <div className="muted small" style={{ marginTop: 6 }}>
-                Concluída em:{" "}
-                <strong>{selectedList.completedAt ? fmtDate(selectedList.completedAt) : "—"}</strong>
+                Concluída em: <strong>{selectedList.completedAt ? fmtDate(selectedList.completedAt) : "—"}</strong>
               </div>
               {selectedList.completedAt ? (
                 <div className="muted small" style={{ marginTop: 6 }}>
@@ -1276,7 +1126,7 @@ export default function ListaPage() {
                 <button
                   key={it.label}
                   type="button"
-                  className={"btn " + (it.danger ? "btn-danger" : "")}
+                  className={"chip " + (it.danger ? "btn-danger" : "")}
                   style={{ width: "100%" }}
                   onClick={() => {
                     setMenuModalOpen(false);
@@ -1289,7 +1139,6 @@ export default function ListaPage() {
             </div>
           </>
         ) : (
-          // Se não tem lista selecionada, oferece criar nova
           <button
             type="button"
             className="primary-btn"
@@ -1306,7 +1155,6 @@ export default function ListaPage() {
 
       {/* ---------- Modals ---------- */}
 
-      {/* Modal de criação de lista */}
       <Modal open={modalCreateOpen} title="Nova lista" onClose={() => setModalCreateOpen(false)}>
         <div className="field">
           <label>Nome da lista</label>
@@ -1341,7 +1189,6 @@ export default function ListaPage() {
         </div>
       </Modal>
 
-      {/* Modal de renomear lista */}
       <Modal open={modalRenameOpen} title="Renomear lista" onClose={() => setModalRenameOpen(false)}>
         <div className="field">
           <label>Novo nome</label>
@@ -1362,7 +1209,6 @@ export default function ListaPage() {
         </div>
       </Modal>
 
-      {/* Modal genérico de confirmação */}
       <Modal open={confirmOpen} title={confirmCfg.title || "Confirmar"} onClose={() => setConfirmOpen(false)}>
         <div className="muted" style={{ lineHeight: 1.35 }}>
           {confirmCfg.body}
