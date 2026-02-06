@@ -76,7 +76,8 @@ function getNthBusinessDayDate(year, monthIndex, n) {
     const isBusinessDay = day !== 0 && day !== 6; // seg-sex
     if (isBusinessDay) {
       count++;
-      if (count === n) return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      if (count === n)
+        return new Date(d.getFullYear(), d.getMonth(), d.getDate());
     }
     d.setDate(d.getDate() + 1);
   }
@@ -93,8 +94,15 @@ function parseDiaPagamentoToRule(diaPagamentoRaw) {
     if (Number.isFinite(n) && n >= 1 && n <= 31) return { kind: "businessDay", n };
   }
 
-  // Ex.: "10", "dia 10"
-  const m2 = s.match(/(\d+)/);
+  // ✅ (NOVO) Se você digitar só "5" ou "9" ou "10", entende como DIA ÚTIL
+  // Isso faz: "5" = 5º dia útil (pode cair dia 6/7/etc)
+  if (/^\d{1,2}$/.test(s)) {
+    const n = Number(s);
+    if (Number.isFinite(n) && n >= 1 && n <= 31) return { kind: "businessDay", n };
+  }
+
+  // Ex.: "dia 10" (aqui continua sendo DIA DO MÊS, caso você queira fixo)
+  const m2 = s.match(/\bdia\s+(\d{1,2})\b/);
   const day = m2 ? Number(m2[1]) : NaN;
   if (Number.isFinite(day) && day >= 1 && day <= 31) return { kind: "dayOfMonth", day };
 
