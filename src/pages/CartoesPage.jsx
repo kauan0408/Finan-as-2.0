@@ -155,8 +155,10 @@ export default function CartoesCreditoPage() {
   const [modalPagar, setModalPagar] = useState(null);
 
   // ✅ "resumo" é a lista de cartões com cálculos prontos:
-  // - fatura aberta do mês
-  // - comprometido futuro (parcelas + compras futuras)
+  // - compras do mês
+  // - pagamentos do mês
+  // - ✅ saldo em aberto ATÉ o mês selecionado (não zera ao virar o mês)
+  // - comprometido total (impacta limite até pagar)
   // - limite disponível
   // - percentual usado
   // - se o dia do cartão já chegou
@@ -254,10 +256,12 @@ export default function CartoesCreditoPage() {
         })
         .filter((t) => t._faturaRef);
 
+      // ==========================
+      // ✅ MÊS SELECIONADO (apenas)
+      // ==========================
       const comprasMes = comprasCredito.filter(
         (t) => t._faturaRef === chaveMesSelecionado
       );
-
       const totalComprasMes = comprasMes.reduce(
         (s, t) => s + Number(t.valor || 0),
         0
@@ -266,36 +270,46 @@ export default function CartoesCreditoPage() {
       const pagamentosMes = pagamentos.filter(
         (t) => t._faturaRef === chaveMesSelecionado
       );
-
       const totalPagamentosMes = pagamentosMes.reduce(
         (s, t) => s + Number(t.valor || 0),
         0
       );
 
-      const faturaAberta = Math.max(0, totalComprasMes - totalPagamentosMes);
-
-      const comprasFuturas = comprasCredito.filter(
-        (t) => t._faturaRef >= chaveMesSelecionado
+      // ==========================================
+      // ✅ EM ABERTO ATÉ O MÊS SELECIONADO (carry)
+      // (isso evita zerar quando muda o mês)
+      // ==========================================
+      const comprasAteMes = comprasCredito.filter(
+        (t) => t._faturaRef <= chaveMesSelecionado
       );
-
-      const totalComprasFuturas = comprasFuturas.reduce(
+      const totalComprasAteMes = comprasAteMes.reduce(
         (s, t) => s + Number(t.valor || 0),
         0
       );
 
-      const pagamentosFuturos = pagamentos.filter(
-        (t) => t._faturaRef >= chaveMesSelecionado
+      const pagamentosAteMes = pagamentos.filter(
+        (t) => t._faturaRef <= chaveMesSelecionado
       );
-
-      const totalPagamentosFuturos = pagamentosFuturos.reduce(
+      const totalPagamentosAteMes = pagamentosAteMes.reduce(
         (s, t) => s + Number(t.valor || 0),
         0
       );
 
-      const comprometido = Math.max(
-        0,
-        totalComprasFuturas - totalPagamentosFuturos
+      const saldoAteMes = Math.max(0, totalComprasAteMes - totalPagamentosAteMes);
+
+      // ==========================================
+      // ✅ COMPROMETIDO TOTAL (impacta limite sempre)
+      // ==========================================
+      const totalComprasAll = comprasCredito.reduce(
+        (s, t) => s + Number(t.valor || 0),
+        0
       );
+      const totalPagamentosAll = pagamentos.reduce(
+        (s, t) => s + Number(t.valor || 0),
+        0
+      );
+
+      const comprometido = Math.max(0, totalComprasAll - totalPagamentosAll);
 
       const limiteDisponivel = limite - comprometido;
 
@@ -309,7 +323,9 @@ export default function CartoesCreditoPage() {
         diaDoCartao,
         totalComprasMes,
         totalPagamentosMes,
-        faturaAberta,
+        // ✅ antes: faturaAberta do mês; agora: mantém saldo em aberto até o mês selecionado
+        faturaAberta: saldoAteMes,
+        saldoAteMes,
         comprometido,
         limiteDisponivel,
         perc,
@@ -414,10 +430,13 @@ export default function CartoesCreditoPage() {
       return;
     }
 
+    // ✅ sugestão: pagar "em aberto até o mês selecionado"
+    const sugerido = Number(cartao?.saldoAteMes ?? cartao?.faturaAberta ?? 0);
+
     setModalPagar({
       cartaoId: cartao.id,
       titulo,
-      valorSugerido: cartao.comprometido || 0,
+      valorSugerido: sugerido,
       valorDigitado: 0,
       faturaRef: chaveMesSelecionado,
       erro: "",
@@ -457,7 +476,7 @@ export default function CartoesCreditoPage() {
     if (!modalPagar) return;
 
     const linha = resumo.find((r) => r.id === modalPagar.cartaoId);
-    const totalAtual = Number(linha?.comprometido ?? 0);
+    const totalAtual = Number(linha?.saldoAteMes ?? linha?.faturaAberta ?? 0);
 
     setModalPagar((p) => ({
       ...p,
@@ -538,10 +557,33 @@ export default function CartoesCreditoPage() {
         resumo.map((c) => {
           const emEdicao = editando?.id === c.id;
 
+          // ✅ alerta: dia do cartão chegou e ainda tem saldo em aberto até o mês
+          const alertaAtraso = !!c.diaChegou && Number(c.saldoAteMes || 0) > 0;
+
           return (
             <div key={c.id} className="card mt">
               {!emEdicao ? (
                 <>
+                  {alertaAtraso ? (
+                    <div
+                      className="card"
+                      style={{
+                        padding: 10,
+                        marginBottom: 10,
+                        border: "1px solid rgba(249,115,115,.55)",
+                        background: "rgba(249,115,115,.10)",
+                      }}
+                    >
+                      <b style={{ color: "var(--negative)" }}>⚠ Fatura em aberto</b>
+                      <div className="muted small" style={{ marginTop: 4 }}>
+                        Em aberto até <b>{chaveMesSelecionado}</b>:{" "}
+                        <b style={{ color: "var(--negative)" }}>
+                          {formatCurrency(c.saldoAteMes)}
+                        </b>
+                      </div>
+                    </div>
+                  ) : null}
+
                   <div className="history-day-header">
                     <div>
                       <h3>{c.nome}</h3>
@@ -552,15 +594,19 @@ export default function CartoesCreditoPage() {
                       </p>
 
                       <p className="muted small">
-                        <strong>Compras:</strong>{" "}
+                        <strong>Compras do mês:</strong>{" "}
                         {formatCurrency(c.totalComprasMes)}
                       </p>
 
                       <p className="muted small">
-                        <strong>Pagamentos:</strong>{" "}
+                        <strong>Pagamentos do mês:</strong>{" "}
                         {formatCurrency(c.totalPagamentosMes)}
                       </p>
 
+                      <p className="muted small">
+                        <strong>Em aberto até {chaveMesSelecionado}:</strong>{" "}
+                        {formatCurrency(c.saldoAteMes)}
+                      </p>
                     </div>
 
                     <div className="align-right">
@@ -606,7 +652,7 @@ export default function CartoesCreditoPage() {
                       💸 Adiantar
                     </button>
 
-                    {c.diaChegou && c.faturaAberta > 0 && (
+                    {c.diaChegou && c.saldoAteMes > 0 && (
                       <button
                         type="button"
                         className="primary-btn"
