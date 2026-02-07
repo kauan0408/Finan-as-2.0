@@ -74,7 +74,10 @@ export default function PerfilPage() {
   const hoje = new Date();
 
   // Chave do mês atual no formato YYYY-MM (ex.: 2026-01)
-  const chaveMes = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}`;
+  const chaveMes = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(
+    2,
+    "0"
+  )}`;
 
   // Garante que gastosFixos seja um array (se vier vazio/errado, vira [])
   const gastosFixos = Array.isArray(profile.gastosFixos) ? profile.gastosFixos : [];
@@ -94,6 +97,19 @@ export default function PerfilPage() {
     const num = Number(String(v).replace(",", "."));
     return Number.isFinite(num) ? num : 0;
   };
+
+  // ✅ (ADICIONADO) formata moeda BRL
+  const formatarBRL = (n) =>
+    Number(n || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
+  // ✅ (ADICIONADO) total de gastos fixos ativos do mês atual (chaveMes)
+  const totalGastosFixosMes = React.useMemo(() => {
+    return gastosFixos.reduce((soma, g) => {
+      if (g?.ativo === false) return soma;
+      const v = g?.valoresPorMes?.[chaveMes];
+      return soma + normalizarNumero(v);
+    }, 0);
+  }, [gastosFixos, chaveMes]);
 
   // Gera ID único para gasto fixo (tenta crypto.randomUUID, se falhar usa fallback)
   const gerarId = () => {
@@ -116,17 +132,29 @@ export default function PerfilPage() {
     }
     // Valida valor
     if (!valor || valor <= 0) {
-      abrirFeedback("error", "Valor inválido", "Digite um valor válido para o gasto fixo.");
+      abrirFeedback(
+        "error",
+        "Valor inválido",
+        "Digite um valor válido para o gasto fixo."
+      );
       return;
     }
 
     // Regra: Educação NÃO entra como gasto fixo automático
     if ((gfCategoria || "").toLowerCase() === "educacao") {
-      abrirFeedback("error", "Não permitido", "Gastos de Educação não entram como gasto fixo automático.");
+      abrirFeedback(
+        "error",
+        "Não permitido",
+        "Gastos de Educação não entram como gasto fixo automático."
+      );
       return;
     }
     if (nome.toLowerCase() === "educação" || nome.toLowerCase() === "educacao") {
-      abrirFeedback("error", "Não permitido", "Gastos de Educação não entram como gasto fixo automático.");
+      abrirFeedback(
+        "error",
+        "Não permitido",
+        "Gastos de Educação não entram como gasto fixo automático."
+      );
       return;
     }
 
@@ -269,7 +297,11 @@ export default function PerfilPage() {
     }
     // Bloqueia se estiver sem internet (precisa para apagar do Firestore)
     if (!navigator.onLine) {
-      abrirFeedback("error", "Sem internet", "Para apagar do banco você precisa estar com internet.");
+      abrirFeedback(
+        "error",
+        "Sem internet",
+        "Para apagar do banco você precisa estar com internet."
+      );
       return;
     }
 
@@ -439,8 +471,8 @@ export default function PerfilPage() {
       <div className="card mt">
         <h3>Inicializar app</h3>
         <p className="muted small">
-          Isso apaga <strong>tudo</strong> do banco (Firestore) e limpa o cache local deste dispositivo.
-          Use só se quiser começar do zero.
+          Isso apaga <strong>tudo</strong> do banco (Firestore) e limpa o cache local deste
+          dispositivo. Use só se quiser começar do zero.
         </p>
 
         <button
@@ -539,7 +571,8 @@ export default function PerfilPage() {
           </button>
 
           <p className="muted small" style={{ marginTop: 6 }}>
-            Cada salário registrado conta como receita só desse mês. Alterar depois não muda os meses anteriores.
+            Cada salário registrado conta como receita só desse mês. Alterar depois não muda os meses
+            anteriores.
           </p>
         </div>
       </div>
@@ -553,6 +586,14 @@ export default function PerfilPage() {
           <br />
           Se mudar o valor, só muda este mês e os próximos (meses antigos não mudam).
         </p>
+
+        {/* ✅ (ADICIONADO) TOTAL DOS GASTOS FIXOS DO MÊS */}
+        <div className="card" style={{ marginBottom: 10 }}>
+          <p className="muted small" style={{ margin: 0 }}>
+            Total de gastos fixos (ativos) em <strong>{chaveMes}</strong>:{" "}
+            <strong>{formatarBRL(totalGastosFixosMes)}</strong>
+          </p>
+        </div>
 
         <div className="field">
           <label>Nome do gasto fixo</label>
@@ -635,7 +676,11 @@ export default function PerfilPage() {
                         placeholder="Novo valor"
                         style={{ flex: "1 1 160px" }}
                       />
-                      <button type="button" className="primary-btn" onClick={() => salvarEdicaoValor(g.id)}>
+                      <button
+                        type="button"
+                        className="primary-btn"
+                        onClick={() => salvarEdicaoValor(g.id)}
+                      >
                         Salvar valor
                       </button>
                       <button type="button" className="toggle-btn" onClick={cancelarEdicao}>
@@ -648,11 +693,19 @@ export default function PerfilPage() {
                         Alterar valor do mês
                       </button>
 
-                      <button type="button" className="toggle-btn" onClick={() => alternarAtivo(g.id)}>
+                      <button
+                        type="button"
+                        className="toggle-btn"
+                        onClick={() => alternarAtivo(g.id)}
+                      >
                         {ativo ? "Desativar" : "Ativar"}
                       </button>
 
-                      <button type="button" className="toggle-btn" onClick={() => removerGastoFixo(g.id)}>
+                      <button
+                        type="button"
+                        className="toggle-btn"
+                        onClick={() => removerGastoFixo(g.id)}
+                      >
                         Remover
                       </button>
                     </div>
