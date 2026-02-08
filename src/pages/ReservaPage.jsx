@@ -90,7 +90,8 @@ export default function ReservaPage() {
   // - setReserva: função para atualizar o estado da reserva no App
   // - profile: dados do perfil (ex.: diaPagamento)
   // - mesReferencia: mês/ano que o app está mostrando (usado pra cálculos)
-  const { reserva, setReserva, profile, mesReferencia } = useFinance();
+  // ✅ ADICIONADO (sem mexer no resto): adicionarTransacao para registrar "investido"
+  const { reserva, setReserva, profile, mesReferencia, adicionarTransacao } = useFinance();
 
   // ✅ meta mensal (geral) continua existindo
   // Estado local para o input de meta (não grava direto no estado global até salvar)
@@ -104,7 +105,6 @@ export default function ReservaPage() {
   // ✅ adicionar dinheiro (vira movimento)
   // Estados do formulário de depósito/adicionar dinheiro em um local
   const [valorAdicionar, setValorAdicionar] = useState("");
-  const [objetivoMov, setObjetivoMov] = useState(""); // opcional: "carro", "emergência" etc.
   const [origem, setOrigem] = useState("salario"); // origem do dinheiro
   const [localDestinoId, setLocalDestinoId] = useState(""); // local escolhido para receber o depósito
 
@@ -425,7 +425,7 @@ export default function ReservaPage() {
       valor: v,
       origem,
       localId: localDestinoId,
-      objetivo: objetivoMov.trim(),
+      objetivo: "", // ✅ agora não existe mais "Nome do depósito"
       dataHora: new Date().toISOString(),
     };
 
@@ -435,9 +435,27 @@ export default function ReservaPage() {
       movimentos: [movimento, ...movimentos],
     });
 
+    // ✅ ADICIONADO: também vira DESPESA "investido" nas transações (desconta do saldo)
+    // (sem mexer no resto do app)
+    if (typeof adicionarTransacao === "function") {
+      try {
+        adicionarTransacao({
+          id: generateId(),
+          tipo: "despesa",
+          valor: v,
+          categoria: "investido",
+          descricao: `Reserva: ${nomeLocal(localDestinoId)}`,
+          formaPagamento: "debito",
+          dataHora: new Date().toISOString(),
+          origem: origem, // opcional (não atrapalha se seu app ignorar)
+        });
+      } catch (err) {
+        console.error("Falha ao registrar transação de investimento:", err);
+      }
+    }
+
     // Limpa inputs do formulário
     setValorAdicionar("");
-    setObjetivoMov("");
 
     setMensagem(`Adicionado: ${formatCurrency(v)}.`);
   }
@@ -817,15 +835,7 @@ export default function ReservaPage() {
 
         {/* Form de depósito */}
         <form className="form" onSubmit={handleAdicionarReserva}>
-          <div className="field">
-            <label>Nome do depósito (opcional)</label>
-            <input
-              type="text"
-              value={objetivoMov}
-              onChange={(e) => setObjetivoMov(e.target.value)}
-              placeholder="Ex.: Emergência, Carro, Seguro..."
-            />
-          </div>
+          {/* ✅ REMOVIDO: Nome do depósito (opcional) */}
 
           <div className="field">
             <label>Valor (R$)</label>
