@@ -484,17 +484,11 @@ export default function FinancasPage() {
 
             {/* ✅ ADICIONADO */}
             <div className="legend-item">
-              <span
-                className="legend-color"
-                style={{ background: "#F59E0B" }}
-              />
+              <span className="legend-color" style={{ background: "#F59E0B" }} />
               Burrice ({(resumoAtual.pBurrice || 0).toFixed(0)}%)
             </div>
             <div className="legend-item">
-              <span
-                className="legend-color"
-                style={{ background: "#10B981" }}
-              />
+              <span className="legend-color" style={{ background: "#10B981" }} />
               Investido ({(resumoAtual.pInvestido || 0).toFixed(0)}%)
             </div>
           </div>
