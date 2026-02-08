@@ -187,6 +187,29 @@ export default function FinancasPage() {
 
       const totalCat = categorias.essencial + categorias.lazer || 1;
 
+      // ✅ (ADICIONADO) mínimo para pagar contas = gastos fixos + parcelas do cartão (débito/crediário)
+      // Regra simples: soma despesas que são "parcelaNumero" (ou que tenham parcelasTotal>1) e NÃO sejam crédito.
+      // (Não mexe no resto do cálculo do mês.)
+      const totalParcelasMes = transacoes.reduce((soma, t) => {
+        const dt = new Date(t.dataHora);
+        if (dt.getMonth() !== mes0 || dt.getFullYear() !== ano) return soma;
+        if (t.tipo !== "despesa") return soma;
+
+        // se for compra no crédito, não entra aqui (já é controlado no Cartões)
+        if (t.formaPagamento === "credito") return soma;
+
+        const parcelasTotal = Number(t.parcelasTotal ?? t.parcelas ?? 0);
+        const parcelaNumero = Number(t.parcelaNumero ?? 0);
+
+        const ehParcela = parcelasTotal > 1 || parcelaNumero > 0;
+        if (!ehParcela) return soma;
+
+        const v = Number(t.valor || 0);
+        return soma + (Number.isFinite(v) ? v : 0);
+      }, 0);
+
+      const minimoParaPagarContas = totalGastosFixos + totalParcelasMes;
+
       return {
         receitas,
         despesas,
@@ -201,6 +224,10 @@ export default function FinancasPage() {
         gastosFixos: gastosFixosPerfil,
         totalGastosFixos,
         despesasTransacoes,
+
+        // ✅ (ADICIONADO)
+        totalParcelasMes,
+        minimoParaPagarContas,
       };
     };
 
@@ -347,6 +374,46 @@ export default function FinancasPage() {
               Esse valor foi carregado automaticamente porque o mês anterior fechou negativo.
             </p>
           </div>
+        )}
+      </div>
+
+      {/* ✅ (ADICIONADO) MÍNIMO PARA PAGAR AS CONTAS */}
+      <div className="card mt">
+        <h3>Mínimo para pagar as contas</h3>
+
+        <p className="muted small" style={{ marginTop: 6 }}>
+          Soma de <strong>gastos fixos</strong> + <strong>parcelas do mês</strong> (se existir).
+        </p>
+
+        <div className="resumo-grid" style={{ marginTop: 10 }}>
+          <div>
+            <p className="resumo-label">Gastos fixos</p>
+            <p className="resumo-number negative">{formatCurrency(resumoAtual.totalGastosFixos)}</p>
+          </div>
+
+          <div>
+            <p className="resumo-label">Parcelas do mês</p>
+            <p className="resumo-number negative">{formatCurrency(resumoAtual.totalParcelasMes)}</p>
+          </div>
+
+          <div>
+            <p className="resumo-label">Total mínimo</p>
+            <p className="resumo-number negative">
+              {formatCurrency(resumoAtual.minimoParaPagarContas)}
+            </p>
+          </div>
+        </div>
+
+        {salarioFixo > 0 && (
+          <p className="muted small" style={{ marginTop: 10 }}>
+            Com seu salário fixo:{" "}
+            <strong
+              className={salarioFixo - resumoAtual.minimoParaPagarContas >= 0 ? "positive" : "negative"}
+            >
+              {formatCurrency(salarioFixo - resumoAtual.minimoParaPagarContas)}
+            </strong>{" "}
+            {salarioFixo - resumoAtual.minimoParaPagarContas >= 0 ? "sobram" : "faltam"} após o mínimo.
+          </p>
         )}
       </div>
 
