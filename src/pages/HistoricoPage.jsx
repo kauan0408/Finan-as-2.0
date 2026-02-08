@@ -65,6 +65,22 @@ function normalizarDescricao(desc) {
     .replace(/\s+/g, " ");
 }
 
+// ✅ ADICIONADO: padroniza label da categoria (ex.: "investido" -> "Investido")
+function categoriaLabel(cat) {
+  const s = String(cat || "").trim();
+  if (!s) return "";
+  const low = s.toLowerCase();
+
+  if (low === "investido") return "Investido";
+  if (low === "burrice") return "Burrice";
+  if (low === "besteira") return "Besteira";
+  if (low === "essencial") return "Essencial";
+  if (low === "lazer") return "Lazer";
+
+  // fallback: só coloca primeira letra maiúscula
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
 // Componente principal da página de Histórico
 export default function HistoricoPage() {
   // Puxa do contexto:
@@ -720,7 +736,7 @@ export default function HistoricoPage() {
                               <div className="muted small">
                                 {(t.formaPagamento || "").toUpperCase()}
                                 {t.cartaoId && ` · ${cartaoNomePorId[t.cartaoId] || "Cartão"}`}
-                                {t.categoria && ` · ${(t.categoria || "").toString()}`}
+                                {t.categoria && ` · ${categoriaLabel(t.categoria)}`}
                               </div>
                             </div>
 
@@ -798,7 +814,7 @@ export default function HistoricoPage() {
                       <div className="muted small">
                         {(t.formaPagamento || "").toUpperCase()}
                         {t.cartaoId && ` · ${cartaoNomePorId[t.cartaoId] || "Cartão"}`}
-                        {t.categoria && ` · ${(t.categoria || "").toString()}`}
+                        {t.categoria && ` · ${categoriaLabel(t.categoria)}`}
                       </div>
 
                       {/* Se for compra parcelada, mostra info do parcelamento e total */}
