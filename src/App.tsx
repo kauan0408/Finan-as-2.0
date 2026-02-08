@@ -95,7 +95,6 @@ function parseDiaPagamentoToRule(diaPagamentoRaw) {
   }
 
   // ✅ (NOVO) Se você digitar só "5" ou "9" ou "10", entende como DIA ÚTIL
-  // Isso faz: "5" = 5º dia útil (pode cair dia 6/7/etc)
   if (/^\d{1,2}$/.test(s)) {
     const n = Number(s);
     if (Number.isFinite(n) && n >= 1 && n <= 31) return { kind: "businessDay", n };
@@ -110,8 +109,6 @@ function parseDiaPagamentoToRule(diaPagamentoRaw) {
 }
 
 // ✅ calcula qual mês deve estar ativo pelo diaPagamento
-// - antes do pagamento: mês anterior
-// - no dia/apos pagamento: mês atual
 function calcMesRefByPayday(diaPagamentoRaw) {
   const rule = parseDiaPagamentoToRule(diaPagamentoRaw);
   const today = new Date();
@@ -119,7 +116,6 @@ function calcMesRefByPayday(diaPagamentoRaw) {
   const m = today.getMonth();
 
   if (!rule) {
-    // se não tem regra, usa mês atual normal
     return { mes: m, ano: y };
   }
 
@@ -135,29 +131,25 @@ function calcMesRefByPayday(diaPagamentoRaw) {
 
   if (!payday) return { mes: m, ano: y };
 
-  // zera hora pra comparação “limpa”
   const t0 = new Date(today.getFullYear(), today.getMonth(), today.getDate());
   const p0 = new Date(payday.getFullYear(), payday.getMonth(), payday.getDate());
 
   if (t0 < p0) {
-    // mês anterior
     const prev = new Date(y, m - 1, 1);
     return { mes: prev.getMonth(), ano: prev.getFullYear() };
   }
   return { mes: m, ano: y };
 }
 
-/* ✅ (NOVO) Se eu estiver vendo Janeiro/2026 na setinha, lançar cai em Janeiro/2026 */
+/* ✅ Se eu estiver vendo Janeiro/2026 na setinha, lançar cai em Janeiro/2026 */
 function makeISOInMesReferencia(mesReferencia) {
   const now = new Date();
   const ano = Number(mesReferencia?.ano ?? now.getFullYear());
   const mes0 = Number(mesReferencia?.mes ?? now.getMonth());
 
-  // usa o mesmo dia de hoje, mas limita ao último dia do mês escolhido
   const lastDay = new Date(ano, mes0 + 1, 0).getDate();
   const dia = Math.min(now.getDate(), lastDay);
 
-  // preserva hora/min/seg pra manter ordem “recente”
   const d = new Date(
     ano,
     mes0,
@@ -188,6 +180,11 @@ const DEFAULT_RESERVA = {
   movimentos: [],
 };
 
+// ✅ (NOVO) defaults das páginas que não estavam online
+const DEFAULT_LISTA = [];
+const DEFAULT_LEMBRETES = [];
+const DEFAULT_RECEITAS = [];
+
 /* ---------------- COMPONENTE PRINCIPAL ---------------- */
 
 export default function App() {
@@ -210,26 +207,27 @@ export default function App() {
   // Reserva
   const [reserva, setReserva] = useState(DEFAULT_RESERVA);
 
+  // ✅ (NOVO) estados online para Lista/Lembretes/Receitas
+  const [lista, setLista] = useState(DEFAULT_LISTA);
+  const [lembretes, setLembretes] = useState(DEFAULT_LEMBRETES);
+  const [receitas, setReceitas] = useState(DEFAULT_RECEITAS);
+
   // ==========================================================
   // ✅ MÊS DE REFERÊNCIA COM PERSISTÊNCIA + MODO AUTOMÁTICO
   // ==========================================================
   const [mesAuto, setMesAuto] = useState(true);
 
-  // começa com mês “normal”, mas depois vamos restaurar do storage do usuário
   const hoje = new Date();
   const [mesReferencia, setMesReferencia] = useState({
     mes: hoje.getMonth(),
     ano: hoje.getFullYear(),
   });
 
-  // ✅ salva mês/auto no storage (por usuário)
   const persistMesRef = (uid, ref) => saveToStorage(`mesRef_${uid}`, ref);
   const persistMesAuto = (uid, v) => saveToStorage(`mesAuto_${uid}`, v);
 
-  // ✅ ir para mês automático “do pagamento”
   const irParaMesAtual = () => {
     if (!user) {
-      // sem usuário, só vai no mês atual normal
       const h = new Date();
       setMesReferencia({ mes: h.getMonth(), ano: h.getFullYear() });
       return;
@@ -241,7 +239,6 @@ export default function App() {
     persistMesRef(user.uid, ref);
   };
 
-  // ✅ mudar mês manualmente (desliga automático e mantém ao reabrir)
   const mudarMesReferencia = (delta) => {
     setMesAuto(false);
 
@@ -268,7 +265,6 @@ export default function App() {
     });
   };
 
-  // ✅ também permite setar direto (se algum dia você fizer um seletor “YYYY-MM”)
   const setMesReferenciaManual = (ref) => {
     if (!ref) return;
     setMesAuto(false);
@@ -279,8 +275,6 @@ export default function App() {
     }
   };
 
-  // ✅ (NOVO) Atualiza mês AUTOMÁTICO quando chega o pagamento,
-  // mas SÓ se mesAuto === true.
   useEffect(() => {
     if (!mesAuto) return;
 
@@ -294,7 +288,7 @@ export default function App() {
     };
 
     tick();
-    const id = setInterval(tick, 60 * 1000); // checa a cada 1 min (PWA ok)
+    const id = setInterval(tick, 60 * 1000);
     return () => clearInterval(id);
   }, [mesAuto, profile?.diaPagamento, user]);
 
@@ -304,7 +298,6 @@ export default function App() {
   // ✅ MENU ⋯
   const [menuMaisAberto, setMenuMaisAberto] = useState(false);
 
-  // ✅ Itens do ⋯: somente estes 5
   const itensMenuMais = useMemo(
     () => [
       { key: "financas", label: "💰 Finanças" },
@@ -321,7 +314,6 @@ export default function App() {
     setMenuMaisAberto(false);
   }
 
-  // ✅ Grupo que DEVE mostrar o menu inferior (Finanças + subpáginas)
   const mostrarMenuInferior = useMemo(() => {
     return ["financas", "reserva", "transacoes", "cartoes", "historico", "perfil"].includes(
       abaAtiva
@@ -362,30 +354,60 @@ export default function App() {
           const cartoesCloud = data.cartoes || [];
           const reservaCloud = data.reserva || DEFAULT_RESERVA;
 
+          // ✅ (NOVO) cloud
+          const listaCloud = data.lista || DEFAULT_LISTA;
+          const lembretesCloud = data.lembretes || DEFAULT_LEMBRETES;
+          const receitasCloud = data.receitas || DEFAULT_RECEITAS;
+
           setProfile(perfilCloud);
           setTransacoes(transacoesCloud);
           setCartoes(cartoesCloud);
           setReserva(reservaCloud);
 
+          // ✅ (NOVO)
+          setLista(listaCloud);
+          setLembretes(lembretesCloud);
+          setReceitas(receitasCloud);
+
           saveToStorage(`profile_${uid}`, perfilCloud);
           saveToStorage(`transacoes_${uid}`, transacoesCloud);
           saveToStorage(`cartoes_${uid}`, cartoesCloud);
           saveToStorage(`reserva_${uid}`, reservaCloud);
+
+          // ✅ (NOVO)
+          saveToStorage(`lista_${uid}`, listaCloud);
+          saveToStorage(`lembretes_${uid}`, lembretesCloud);
+          saveToStorage(`receitas_${uid}`, receitasCloud);
         } else {
           const storedProfile = loadFromStorage(`profile_${uid}`, null);
           const storedTransacoes = loadFromStorage(`transacoes_${uid}`, null);
           const storedCartoes = loadFromStorage(`cartoes_${uid}`, null);
           const storedReserva = loadFromStorage(`reserva_${uid}`, null);
 
+          // ✅ (NOVO)
+          const storedLista = loadFromStorage(`lista_${uid}`, null);
+          const storedLembretes = loadFromStorage(`lembretes_${uid}`, null);
+          const storedReceitas = loadFromStorage(`receitas_${uid}`, null);
+
           const perfilInicial = storedProfile || DEFAULT_PROFILE;
           const transacoesIniciais = storedTransacoes || [];
           const cartoesIniciais = storedCartoes || [];
           const reservaInicial = storedReserva || DEFAULT_RESERVA;
 
+          // ✅ (NOVO)
+          const listaInicial = storedLista || DEFAULT_LISTA;
+          const lembretesIniciais = storedLembretes || DEFAULT_LEMBRETES;
+          const receitasIniciais = storedReceitas || DEFAULT_RECEITAS;
+
           setProfile(perfilInicial);
           setTransacoes(transacoesIniciais);
           setCartoes(cartoesIniciais);
           setReserva(reservaInicial);
+
+          // ✅ (NOVO)
+          setLista(listaInicial);
+          setLembretes(lembretesIniciais);
+          setReceitas(receitasIniciais);
 
           await setDoc(
             userDocRef,
@@ -394,6 +416,11 @@ export default function App() {
               transacoes: transacoesIniciais,
               cartoes: cartoesIniciais,
               reserva: reservaInicial,
+
+              // ✅ (NOVO)
+              lista: listaInicial,
+              lembretes: lembretesIniciais,
+              receitas: receitasIniciais,
             },
             { merge: true }
           );
@@ -403,7 +430,6 @@ export default function App() {
         const storedMesAuto = loadFromStorage(`mesAuto_${uid}`, null);
         const storedMesRef = loadFromStorage(`mesRef_${uid}`, null);
 
-        // se já tinha preferência salva:
         if (typeof storedMesAuto === "boolean") {
           setMesAuto(storedMesAuto);
           if (storedMesAuto === true) {
@@ -418,14 +444,12 @@ export default function App() {
             ) {
               setMesReferencia(storedMesRef);
             } else {
-              // fallback: se não tem mesRef salvo, guarda o atual
               const ref = { mes: new Date().getMonth(), ano: new Date().getFullYear() };
               setMesReferencia(ref);
               persistMesRef(uid, ref);
             }
           }
         } else {
-          // se nunca salvou antes, começa em automático pelo pagamento
           const ref = calcMesRefByPayday((snap.data()?.profile || profile)?.diaPagamento);
           setMesAuto(true);
           setMesReferencia(ref);
@@ -443,21 +467,36 @@ export default function App() {
           if (data.transacoes) setTransacoes(data.transacoes);
           if (data.cartoes) setCartoes(data.cartoes);
           if (data.reserva) setReserva(data.reserva);
+
+          // ✅ (NOVO)
+          if (data.lista) setLista(data.lista);
+          if (data.lembretes) setLembretes(data.lembretes);
+          if (data.receitas) setReceitas(data.receitas);
         });
       } catch (err) {
         console.error("Erro ao carregar dados iniciais do Firestore:", err);
         const uid = user.uid;
+
         const storedProfile = loadFromStorage(`profile_${uid}`, DEFAULT_PROFILE);
         const storedTransacoes = loadFromStorage(`transacoes_${uid}`, []);
         const storedCartoes = loadFromStorage(`cartoes_${uid}`, []);
         const storedReserva = loadFromStorage(`reserva_${uid}`, DEFAULT_RESERVA);
+
+        // ✅ (NOVO)
+        const storedLista = loadFromStorage(`lista_${uid}`, DEFAULT_LISTA);
+        const storedLembretes = loadFromStorage(`lembretes_${uid}`, DEFAULT_LEMBRETES);
+        const storedReceitas = loadFromStorage(`receitas_${uid}`, DEFAULT_RECEITAS);
 
         setProfile(storedProfile);
         setTransacoes(storedTransacoes);
         setCartoes(storedCartoes);
         setReserva(storedReserva);
 
-        // ✅ restaura mês/auto mesmo no fallback offline
+        // ✅ (NOVO)
+        setLista(storedLista);
+        setLembretes(storedLembretes);
+        setReceitas(storedReceitas);
+
         const storedMesAuto = loadFromStorage(`mesAuto_${uid}`, true);
         const storedMesRef = loadFromStorage(`mesRef_${uid}`, null);
 
@@ -495,17 +534,27 @@ export default function App() {
     const uid = user.uid;
     const userDocRef = doc(db, "users", uid);
 
+    // ✅ (NOVO) inclui lista/lembretes/receitas no payload
     const payload = {
       profile,
       transacoes,
       cartoes,
       reserva,
+
+      lista,
+      lembretes,
+      receitas,
     };
 
     saveToStorage(`profile_${uid}`, profile);
     saveToStorage(`transacoes_${uid}`, transacoes);
     saveToStorage(`cartoes_${uid}`, cartoes);
     saveToStorage(`reserva_${uid}`, reserva);
+
+    // ✅ (NOVO)
+    saveToStorage(`lista_${uid}`, lista);
+    saveToStorage(`lembretes_${uid}`, lembretes);
+    saveToStorage(`receitas_${uid}`, receitas);
 
     if (!navigator.onLine) {
       saveToStorage(`pendingSync_${uid}`, payload);
@@ -520,7 +569,19 @@ export default function App() {
         console.error("Erro ao salvar dados no Firestore:", err);
         saveToStorage(`pendingSync_${uid}`, payload);
       });
-  }, [user, dadosCarregados, profile, transacoes, cartoes, reserva]);
+  }, [
+    user,
+    dadosCarregados,
+    profile,
+    transacoes,
+    cartoes,
+    reserva,
+
+    // ✅ (NOVO)
+    lista,
+    lembretes,
+    receitas,
+  ]);
 
   /* ------- 3) SINCRONIZAR PENDÊNCIAS ------- */
 
@@ -561,7 +622,6 @@ export default function App() {
     const nova = {
       ...dados,
       id: generateId(),
-      // ✅ se não vier dataHora, usa o mês que está selecionado na setinha
       dataHora: dados.dataHora || makeISOInMesReferencia(mesReferencia),
     };
     setTransacoes((prev) => [nova, ...prev]);
@@ -588,8 +648,8 @@ export default function App() {
     setCartoes((prev) => [...prev, novo]);
   };
 
-  const atualizarCartoes = (lista) => {
-    setCartoes(lista);
+  const atualizarCartoes = (listaCartoes) => {
+    setCartoes(listaCartoes);
   };
 
   const atualizarReserva = (novosDados) => {
@@ -611,7 +671,15 @@ export default function App() {
       reserva,
       setReserva: atualizarReserva,
 
-      // ✅ mês global com modo automático/manual persistente
+      // ✅ (NOVO) expõe para as páginas
+      lista,
+      setLista,
+      lembretes,
+      setLembretes,
+      receitas,
+      setReceitas,
+
+      // ✅ mês global
       mesReferencia,
       mudarMesReferencia,
       irParaMesAtual,
@@ -622,7 +690,21 @@ export default function App() {
       loginComGoogle,
       logout,
     }),
-    [user, profile, transacoes, cartoes, reserva, mesReferencia, mesAuto]
+    [
+      user,
+      profile,
+      transacoes,
+      cartoes,
+      reserva,
+
+      // ✅ (NOVO)
+      lista,
+      lembretes,
+      receitas,
+
+      mesReferencia,
+      mesAuto,
+    ]
   );
 
   /* ------- ESCOLHE PÁGINA ------- */
@@ -769,7 +851,6 @@ export default function App() {
 
           <main className="app-main">{pagina}</main>
 
-          {/* ✅ menu inferior aparece em Finanças E em Reserva/Transações/Cartões/Histórico/Perfil */}
           {mostrarMenuInferior && (
             <nav className="bottom-nav">
               <button
@@ -834,7 +915,6 @@ export default function App() {
             </nav>
           )}
 
-          {/* ✅ MODAL ⋯: só 5 itens */}
           {menuMaisAberto && (
             <div
               className="modal-overlay"
