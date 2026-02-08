@@ -88,7 +88,8 @@ export default function FinancasPage() {
       let despesasTransacoes = 0;
       let gastosCartao = 0;
 
-      let categorias = { essencial: 0, lazer: 0 };
+      // ✅ ADICIONADO: burrice + investido
+      let categorias = { essencial: 0, lazer: 0, burrice: 0, investido: 0 };
       const semanas = [0, 0, 0, 0];
 
       const chaveMes = monthKey(ano, mes0);
@@ -130,6 +131,10 @@ export default function FinancasPage() {
             if (cat === "essencial") categorias.essencial += valor;
             if (cat === "lazer") categorias.lazer += valor;
 
+            // ✅ ADICIONADO
+            if (cat === "burrice") categorias.burrice += valor;
+            if (cat === "investido") categorias.investido += valor;
+
             const dia = dt.getDate(); // 1..31
             const semanaIndex = Math.min(3, Math.floor((dia - 1) / 7)); // 0..3
             semanas[semanaIndex] += valor;
@@ -150,6 +155,10 @@ export default function FinancasPage() {
         const cat = (g.categoria || "").toLowerCase();
         if (cat === "essencial") categorias.essencial += v;
         if (cat === "lazer") categorias.lazer += v;
+
+        // ✅ ADICIONADO
+        if (cat === "burrice") categorias.burrice += v;
+        if (cat === "investido") categorias.investido += v;
       });
 
       const saldo = receitas - despesas;
@@ -185,7 +194,9 @@ export default function FinancasPage() {
           count: x.count,
         }));
 
-      const totalCat = categorias.essencial + categorias.lazer || 1;
+      // ✅ ADICIONADO: total das 4 categorias
+      const totalCat =
+        categorias.essencial + categorias.lazer + categorias.burrice + categorias.investido || 1;
 
       return {
         receitas,
@@ -195,6 +206,11 @@ export default function FinancasPage() {
         categorias,
         pEssencial: (categorias.essencial / totalCat) * 100,
         pLazer: (categorias.lazer / totalCat) * 100,
+
+        // ✅ ADICIONADO
+        pBurrice: (categorias.burrice / totalCat) * 100,
+        pInvestido: (categorias.investido / totalCat) * 100,
+
         semanas,
         maxSemana: Math.max(...semanas, 1),
         topDespesas,
@@ -245,10 +261,22 @@ export default function FinancasPage() {
       ? salarioFixo + resumoAtual.receitas - resumoAtual.despesas - pendenteAnterior
       : resumoAtual.saldo - pendenteAnterior;
 
+  // ✅ ADICIONADO: pizza com 4 fatias (essencial/lazer/burrice/investido)
+  const pE = resumoAtual.pEssencial || 0;
+  const pL = resumoAtual.pLazer || 0;
+  const pB = resumoAtual.pBurrice || 0;
+  const pI = resumoAtual.pInvestido || 0;
+
+  const cut1 = pE;
+  const cut2 = pE + pL;
+  const cut3 = pE + pL + pB;
+
   const pizzaStyle = {
     backgroundImage: `conic-gradient(
-      #8FA3FF 0 ${resumoAtual.pEssencial}%,
-      #4C5ACF ${resumoAtual.pEssencial}% 100%
+      #8FA3FF 0 ${cut1}%,
+      #4C5ACF ${cut1}% ${cut2}%,
+      #F59E0B ${cut2}% ${cut3}%,
+      #10B981 ${cut3}% 100%
     )`,
   };
 
@@ -452,6 +480,22 @@ export default function FinancasPage() {
             <div className="legend-item">
               <span className="legend-color legend-leisure" />
               Lazer ({resumoAtual.pLazer.toFixed(0)}%)
+            </div>
+
+            {/* ✅ ADICIONADO */}
+            <div className="legend-item">
+              <span
+                className="legend-color"
+                style={{ background: "#F59E0B" }}
+              />
+              Burrice ({(resumoAtual.pBurrice || 0).toFixed(0)}%)
+            </div>
+            <div className="legend-item">
+              <span
+                className="legend-color"
+                style={{ background: "#10B981" }}
+              />
+              Investido ({(resumoAtual.pInvestido || 0).toFixed(0)}%)
             </div>
           </div>
         </div>
