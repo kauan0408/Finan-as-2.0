@@ -18,7 +18,8 @@ export default function PerfilPage() {
   // - profile: dados do perfil (nome, idade, sexo, limiteGastoMensal, diaPagamento, gastosFixos etc.)
   // - atualizarProfile: função para atualizar profile no estado/banco
   // - adicionarTransacao: função para criar transações (receita/despesa/pagamentos etc.)
-  const { profile, atualizarProfile, adicionarTransacao } = useFinance();
+  // ✅ (ADICIONADO) transacoes: para calcular parcelas do mês
+  const { profile, atualizarProfile, adicionarTransacao, transacoes } = useFinance();
 
   // Pega o usuário logado atual do Firebase Auth
   const user = auth.currentUser;
@@ -110,6 +111,43 @@ export default function PerfilPage() {
       return soma + normalizarNumero(v);
     }, 0);
   }, [gastosFixos, chaveMes]);
+
+  // =========================================================
+  // ✅ (ADICIONADO) PARCELAS DO MÊS (crédito) + MÍNIMO DO MÊS
+  // "mínimo para pagar as contas" = gastos fixos + parcelas do mês (se houver)
+  // =========================================================
+  const transacoesSafe = Array.isArray(transacoes) ? transacoes : [];
+
+  // Soma somente PARCELAS (compras parceladas no crédito) que caem no mês atual
+  const totalParcelasMes = React.useMemo(() => {
+    let soma = 0;
+
+    for (const t of transacoesSafe) {
+      if (!t) continue;
+
+      // Só despesas no crédito
+      if (t.tipo !== "despesa") continue;
+      if (t.formaPagamento !== "credito") continue;
+
+      // Só parcelas (parcelaTotal > 1)
+      const parcelaTotal = Number(t.parcelaTotal ?? t.parcelasTotal ?? t.parcelas ?? 0);
+      if (!(parcelaTotal > 1)) continue;
+
+      const dt = new Date(t.dataHora);
+      if (isNaN(dt.getTime())) continue;
+
+      if (dt.getFullYear() === hoje.getFullYear() && dt.getMonth() === hoje.getMonth()) {
+        soma += Number(t.valor || 0);
+      }
+    }
+
+    return soma;
+  }, [transacoesSafe, hoje]);
+
+  // ✅ mínimo do mês = fixos + parcelas
+  const minimoParaPagarContas = React.useMemo(() => {
+    return Number(totalGastosFixosMes || 0) + Number(totalParcelasMes || 0);
+  }, [totalGastosFixosMes, totalParcelasMes]);
 
   // Gera ID único para gasto fixo (tenta crypto.randomUUID, se falhar usa fallback)
   const gerarId = () => {
@@ -592,6 +630,19 @@ export default function PerfilPage() {
           <p className="muted small" style={{ margin: 0 }}>
             Total de gastos fixos (ativos) em <strong>{chaveMes}</strong>:{" "}
             <strong>{formatarBRL(totalGastosFixosMes)}</strong>
+          </p>
+        </div>
+
+        {/* ✅ (ADICIONADO) MÍNIMO PARA PAGAR AS CONTAS (fixos + parcelas do mês) */}
+        <div className="card" style={{ marginBottom: 10 }}>
+          <p className="muted small" style={{ margin: 0 }}>
+            Mínimo para pagar as contas em <strong>{chaveMes}</strong>:{" "}
+            <strong>{formatarBRL(minimoParaPagarContas)}</strong>
+          </p>
+          <p className="muted small" style={{ marginTop: 6, marginBottom: 0 }}>
+            • Gastos fixos: <strong>{formatarBRL(totalGastosFixosMes)}</strong>
+            <br />
+            • Parcelas no crédito (deste mês): <strong>{formatarBRL(totalParcelasMes)}</strong>
           </p>
         </div>
 
