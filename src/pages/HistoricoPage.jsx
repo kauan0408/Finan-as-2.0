@@ -391,7 +391,7 @@ export default function HistoricoPage() {
       // Pega todas as parcelas do mesmo groupId e ordena por data (mais antiga -> mais nova)
       const parcelas = transacoes
         .filter((p) => p.groupId === t.groupId)
-        .sort((a, b) => parseDateValue(a.dataHora) - parseDateValue(b.dataHora));
+        .sort((a, b) => parseDateValue(a.dataHora) - parseDateValue(a.dataHora));
 
       // Define quantas parcelas existem (usa o tamanho real; se der 0, usa parcelaTotal)
       const totalParcelas = parcelas.length || t.parcelaTotal;
@@ -573,6 +573,10 @@ export default function HistoricoPage() {
               <option value="Essencial">Essencial</option>
               <option value="Besteira">Besteira</option>
               <option value="Lazer">Lazer</option>
+
+              {/* ✅ ADICIONADO */}
+              <option value="Burrice">Burrice</option>
+              <option value="Investido">Investido</option>
             </select>
           </div>
 
@@ -914,6 +918,10 @@ export default function HistoricoPage() {
                   <option value="Essencial">Essencial</option>
                   <option value="Besteira">Besteira</option>
                   <option value="Lazer">Lazer</option>
+
+                  {/* ✅ ADICIONADO */}
+                  <option value="Burrice">Burrice</option>
+                  <option value="Investido">Investido</option>
                 </select>
               </div>
             )}
