@@ -503,6 +503,9 @@ export default function TransacoesPage() {
     let categoriaAuto = "Essencial";
     if (tNorm.includes("lazer")) categoriaAuto = "Lazer";
     if (tNorm.includes("essencial")) categoriaAuto = "Essencial";
+    if (tNorm.includes("burrice")) categoriaAuto = "Burrice";
+    if (tNorm.includes("investido") || tNorm.includes("investimento") || tNorm.includes("investir"))
+      categoriaAuto = "Investido";
 
     // 5) Parcelas
     let parceladoAuto = false;
@@ -562,6 +565,8 @@ export default function TransacoesPage() {
       "categoria",
       "essencial",
       "lazer",
+      "burrice",
+      "investido",
       "pix",
       "pics",
       "debito",
@@ -921,11 +926,14 @@ export default function TransacoesPage() {
           </p>
         </div>
 
-        <form className="form" onSubmit={(e) => {
-          e.preventDefault();
-          // mantém como está, sem mudar nada do seu fluxo
-          confirmarSalvarAtual();
-        }}>
+        <form
+          className="form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            // mantém como está, sem mudar nada do seu fluxo
+            confirmarSalvarAtual();
+          }}
+        >
           <div className="field">
             <label>Tipo</label>
             <div className="toggle-group">
@@ -1005,6 +1013,8 @@ export default function TransacoesPage() {
               <select value={categoria} onChange={(e) => setCategoria(e.target.value)}>
                 <option value="Essencial">Essencial</option>
                 <option value="Lazer">Lazer</option>
+                <option value="Burrice">Burrice</option>
+                <option value="Investido">Investido</option>
               </select>
             </div>
           )}
@@ -1086,7 +1096,8 @@ export default function TransacoesPage() {
           <div className="modal-card">
             <h3>Confirmar lançamento?</h3>
             <p className="muted small" style={{ marginTop: 6 }}>
-              Eu esperei <strong>3 segundos de silêncio</strong> e preenchi os campos. Confira e confirme.
+              Eu esperei <strong>3 segundos de silêncio</strong> e preenchi os campos. Confira e
+              confirme.
             </p>
 
             <div className="card" style={{ marginTop: 10 }}>
@@ -1177,7 +1188,11 @@ export default function TransacoesPage() {
             </p>
 
             <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
-              <button type="button" className="primary-btn" onClick={confirmarCompraEstourandoLimite}>
+              <button
+                type="button"
+                className="primary-btn"
+                onClick={confirmarCompraEstourandoLimite}
+              >
                 ✅ Sim, lançar mesmo assim
               </button>
               <button
