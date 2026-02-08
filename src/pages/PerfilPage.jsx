@@ -75,10 +75,7 @@ export default function PerfilPage() {
   const hoje = new Date();
 
   // Chave do mês atual no formato YYYY-MM (ex.: 2026-01)
-  const chaveMes = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(
-    2,
-    "0"
-  )}`;
+  const chaveMes = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}`;
 
   // Garante que gastosFixos seja um array (se vier vazio/errado, vira [])
   const gastosFixos = Array.isArray(profile.gastosFixos) ? profile.gastosFixos : [];
@@ -170,29 +167,17 @@ export default function PerfilPage() {
     }
     // Valida valor
     if (!valor || valor <= 0) {
-      abrirFeedback(
-        "error",
-        "Valor inválido",
-        "Digite um valor válido para o gasto fixo."
-      );
+      abrirFeedback("error", "Valor inválido", "Digite um valor válido para o gasto fixo.");
       return;
     }
 
     // Regra: Educação NÃO entra como gasto fixo automático
     if ((gfCategoria || "").toLowerCase() === "educacao") {
-      abrirFeedback(
-        "error",
-        "Não permitido",
-        "Gastos de Educação não entram como gasto fixo automático."
-      );
+      abrirFeedback("error", "Não permitido", "Gastos de Educação não entram como gasto fixo automático.");
       return;
     }
     if (nome.toLowerCase() === "educação" || nome.toLowerCase() === "educacao") {
-      abrirFeedback(
-        "error",
-        "Não permitido",
-        "Gastos de Educação não entram como gasto fixo automático."
-      );
+      abrirFeedback("error", "Não permitido", "Gastos de Educação não entram como gasto fixo automático.");
       return;
     }
 
@@ -335,11 +320,7 @@ export default function PerfilPage() {
     }
     // Bloqueia se estiver sem internet (precisa para apagar do Firestore)
     if (!navigator.onLine) {
-      abrirFeedback(
-        "error",
-        "Sem internet",
-        "Para apagar do banco você precisa estar com internet."
-      );
+      abrirFeedback("error", "Sem internet", "Para apagar do banco você precisa estar com internet.");
       return;
     }
 
@@ -469,11 +450,7 @@ export default function PerfilPage() {
           <>
             <div className="avatar-wrapper" style={{ marginBottom: 8 }}>
               {user.photoURL ? (
-                <img
-                  src={user.photoURL}
-                  alt={user.displayName || "Avatar"}
-                  className="avatar-img"
-                />
+                <img src={user.photoURL} alt={user.displayName || "Avatar"} className="avatar-img" />
               ) : (
                 <span className="avatar-placeholder">
                   {user.displayName ? user.displayName[0].toUpperCase() : "?"}
@@ -672,6 +649,8 @@ export default function PerfilPage() {
           <select value={gfCategoria} onChange={(e) => setGfCategoria(e.target.value)}>
             <option value="essencial">Essencial</option>
             <option value="lazer">Lazer</option>
+            <option value="burrice">Burrice</option>
+            <option value="investido">Investido</option>
           </select>
 
           <button
