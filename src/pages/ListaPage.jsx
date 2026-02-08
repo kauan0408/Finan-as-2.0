@@ -169,6 +169,9 @@ export default function ListaPage() {
   const voiceFinalRef = useRef("");
   const restartingRef = useRef(false);
 
+  // ✅ FIX: ref para o estado atual de escuta (evita “state stale” no onend)
+  const listeningRef = useRef(false);
+
   // ---- Auto-clean: delete lists 100% done after 1 week
   function cleanupAutoDeleteLists(currentStore) {
     const now = Date.now();
@@ -668,6 +671,10 @@ export default function ListaPage() {
     } catch {}
     recRef.current = null;
     restartingRef.current = false;
+
+    // ✅ FIX
+    listeningRef.current = false;
+
     setIsListening(false);
     if (!silent) toastMsg("Voz parada. Revise e clique em Adicionar.");
   }
@@ -690,6 +697,9 @@ export default function ListaPage() {
     voiceFinalRef.current = voiceFinalRef.current || "";
 
     rec.onstart = () => {
+      // ✅ FIX
+      listeningRef.current = true;
+
       setIsListening(true);
       toastMsg("🎙️ Gravando... fale: arroz, detergente, balões (vírgula separa itens)");
     };
@@ -711,22 +721,28 @@ export default function ListaPage() {
     };
 
     rec.onerror = () => {
+      // ✅ FIX
+      listeningRef.current = false;
+
       setIsListening(false);
       toastMsg("Falha ao usar microfone (permissão ou erro).");
     };
 
     rec.onend = () => {
-      if (!restartingRef.current && isListening) {
+      // ✅ FIX: usa ref (não state) pra decidir reiniciar
+      if (!restartingRef.current && listeningRef.current) {
         restartingRef.current = true;
         setTimeout(() => {
           restartingRef.current = false;
           try {
             rec.start();
           } catch {
+            listeningRef.current = false;
             setIsListening(false);
           }
         }, 250);
       } else {
+        listeningRef.current = false;
         setIsListening(false);
       }
     };
@@ -735,6 +751,7 @@ export default function ListaPage() {
       rec.start();
     } catch {
       toastMsg("Não consegui iniciar o microfone.");
+      listeningRef.current = false;
       setIsListening(false);
     }
   }
