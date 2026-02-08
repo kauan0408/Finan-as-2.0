@@ -1,13 +1,8 @@
 // src/pages/ReceitasPage.jsx
 
-// Importa React e hooks:
-// - useEffect: efeitos (carregar do localStorage, fechar modal no ESC, etc.)
-// - useMemo: memoriza cálculos (lista filtrada, receita atual, índice)
-// - useRef: referência persistente (timer do “page flip”)
-// - useState: estados da UI e do formulário
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
-// ✅ Firebase (para salvar online quando estiver logada)
+// ✅ Firebase (salvar online quando estiver logada)
 import { auth, db } from "../firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc, setDoc } from "firebase/firestore";
@@ -17,7 +12,6 @@ const LS_KEY = "pwa_receitas_v1";
 
 /* -------- helpers -------- */
 
-// Faz parse de JSON com fallback seguro (se der erro, retorna fallback)
 function safeJSONParse(v, fallback) {
   try {
     return JSON.parse(v);
@@ -26,23 +20,15 @@ function safeJSONParse(v, fallback) {
   }
 }
 
-// Gera um id único:
-// - usa crypto.randomUUID se existir
-// - senão usa random + timestamp
 function uuid() {
   if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
   return "id_" + Math.random().toString(16).slice(2) + Date.now().toString(16);
 }
 
-// Retorna o horário atual em ISO string (para createdAt/updatedAt)
 function nowISO() {
   return new Date().toISOString();
 }
 
-// Normaliza texto para busca:
-// - tira espaços extras
-// - coloca em minúsculo
-// - remove acentos/diacríticos
 function normalizeText(s) {
   return String(s || "")
     .trim()
@@ -51,9 +37,6 @@ function normalizeText(s) {
     .replace(/\p{Diacritic}/gu, "");
 }
 
-// Converte um File (input type="file") para DataURL (base64) para poder:
-// - salvar no localStorage
-// - mostrar preview com <img src="...">
 async function fileToDataUrl(file) {
   return new Promise((resolve, reject) => {
     const r = new FileReader();
@@ -63,29 +46,22 @@ async function fileToDataUrl(file) {
   });
 }
 
-// Categorias disponíveis para selecionar no app
+// Categorias
 const CATEGORIAS = ["Doces", "Salgados", "Massas", "Bebidas", "Festa", "Fit", "Pães", "Molhos", "Outros"];
 
-/* ---------------- OCR (opcional) ----------------
-   - Se tesseract.js estiver instalado, lê o texto da foto e tenta preencher.
-   - Se não estiver, não quebra: só abre o form com a foto.
-*/
-// Faz OCR na imagem usando tesseract.js (se existir no projeto).
-// Se não existir, lança erro (para cair no fallback).
+/* ---------------- OCR (opcional) ---------------- */
+
 async function ocrImageToText(file) {
   try {
     const mod = await import("tesseract.js");
     const Tesseract = mod?.default || mod;
     const { data } = await Tesseract.recognize(file, "por");
     return String(data?.text || "");
-  } catch (e) {
+  } catch {
     throw new Error("OCR indisponível (instale tesseract.js).");
   }
 }
 
-/* tenta achar título/ingredientes/preparo no texto reconhecido */
-// Extrai campos “título”, “ingredientes” e “preparo” do texto reconhecido.
-// É uma heurística simples: procura palavras-chave e separa as partes.
 function parseRecipeFromText(text) {
   const raw = String(text || "").replace(/\r/g, "");
   const lines = raw
@@ -93,12 +69,9 @@ function parseRecipeFromText(text) {
     .map((l) => l.trim())
     .filter(Boolean);
 
-  // título: primeira linha "boa"
   const titulo = (lines[0] || "").slice(0, 80);
-
   const lower = raw.toLowerCase();
 
-  // acha marcadores comuns
   const idxIng = lower.indexOf("ingredientes") >= 0 ? lower.indexOf("ingredientes") : -1;
   const idxPrep =
     lower.indexOf("modo de preparo") >= 0
@@ -110,33 +83,24 @@ function parseRecipeFromText(text) {
   let ingredientes = "";
   let preparo = "";
 
-  // Se achou “ingredientes” e depois “preparo”, separa usando esses pontos
   if (idxIng >= 0 && idxPrep > idxIng) {
     ingredientes = raw.slice(idxIng, idxPrep);
     preparo = raw.slice(idxPrep);
   } else if (idxPrep >= 0) {
-    // se só achou preparo, separa por heurística:
-    // tudo antes = ingredientes (provável), depois = preparo
     const before = raw.slice(0, idxPrep);
     const after = raw.slice(idxPrep);
     ingredientes = before;
     preparo = after;
   } else {
-    // fallback: tenta dividir metade/metade (quando não encontrou marcadores)
     const mid = Math.floor(raw.length / 2);
     ingredientes = raw.slice(0, mid);
     preparo = raw.slice(mid);
   }
 
-  // limpa cabeçalhos comuns do começo (se existirem)
   ingredientes = ingredientes.replace(/^\s*ingredientes\s*[:\-]?\s*/i, "").trim();
   preparo = preparo.replace(/^\s*(modo\s+de\s+preparo|preparo)\s*[:\-]?\s*/i, "").trim();
 
-  return {
-    titulo: titulo || "",
-    ingredientes: ingredientes || "",
-    preparo: preparo || "",
-  };
+  return { titulo: titulo || "", ingredientes: ingredientes || "", preparo: preparo || "" };
 }
 
 /* ---------------- COLAR (entrada única) ---------------- */
@@ -151,14 +115,6 @@ function cleanHeading(s) {
   return String(s || "").replace(/^\s*[:\-–—]\s*/, "").trim();
 }
 
-/**
- * Parser “Entrada rápida”:
- * - entende cabeçalhos comuns: Título, Categoria, Tempo, Rendimento, Dificuldade, Tags,
- *   Ingredientes, Modo de preparo/Preparo, Observações/Dicas, Armazenamento/Validade.
- * - se não tiver cabeçalho, tenta heurística:
- *   * linhas com "-" ou "•" viram ingredientes
- *   * linhas com "1)" / "1." viram preparo
- */
 function parseQuickRecipe(rawText) {
   const raw = String(rawText || "").replace(/\r/g, "");
   const lines = raw.split("\n").map((l) => l.trimEnd());
@@ -176,7 +132,7 @@ function parseQuickRecipe(rawText) {
     armazenamento: "",
   };
 
-  // 1) tenta capturar metadados em linhas tipo "Campo: valor"
+  // Campo: valor
   for (const line of lines) {
     const l = line.trim();
     if (!l) continue;
@@ -195,15 +151,12 @@ function parseQuickRecipe(rawText) {
     else if (key.includes("tags")) out.tags = val;
   }
 
-  // 2) separa blocos por cabeçalhos (ingredientes / preparo / observações / armazenamento)
   const lower = raw.toLowerCase();
-
   const idxIng = lower.search(/\bingredientes\b/);
   const idxPrep = lower.search(/\b(modo\s+de\s+preparo|preparo)\b/);
   const idxObs = lower.search(/\b(observa(ç|c)ões|dicas)\b/);
   const idxArm = lower.search(/\b(armazenamento|validade)\b/);
 
-  // monta lista de cortes válidos
   const cuts = [
     { name: "ingredientes", idx: idxIng },
     { name: "preparo", idx: idxPrep },
@@ -215,7 +168,6 @@ function parseQuickRecipe(rawText) {
 
   function sliceSection(fromIdx, toIdx) {
     const chunk = raw.slice(fromIdx, toIdx < 0 ? raw.length : toIdx);
-    // remove o cabeçalho da primeira linha do chunk
     return chunk
       .replace(
         /^\s*(ingredientes|modo\s+de\s+preparo|preparo|observa(ç|c)ões|dicas|armazenamento|validade)\s*[:\-]?\s*/i,
@@ -236,9 +188,7 @@ function parseQuickRecipe(rawText) {
       if (cur.name === "armazenamento") out.armazenamento = content;
     }
 
-    // título (se não veio em "Título:")
     if (!out.titulo) {
-      // pega a primeira linha "boa" antes de ingredientes/preparo
       const head = raw
         .slice(0, cuts[0].idx)
         .split("\n")
@@ -247,7 +197,6 @@ function parseQuickRecipe(rawText) {
       out.titulo = (head[0] || "").slice(0, 80);
     }
   } else {
-    // 3) heurística se não tiver cabeçalhos
     const clean = lines.map((l) => l.trim()).filter(Boolean);
 
     out.titulo = out.titulo || (clean[0] || "").slice(0, 80);
@@ -258,25 +207,16 @@ function parseQuickRecipe(rawText) {
 
     for (const l of clean.slice(1)) {
       const t = l.trim();
-      if (looksLikeListLine(t) && !/^\d+[\)\.\-]/.test(t)) {
-        // "-" ou "•" => ingrediente
-        ingLines.push(t);
-      } else if (/^\d+[\)\.\-]/.test(t) || /^[a-z]\)/i.test(t)) {
-        // "1)" "1." "a)" => preparo
-        prepLines.push(t);
-      } else {
-        otherLines.push(t);
-      }
+      if (looksLikeListLine(t) && !/^\d+[\)\.\-]/.test(t)) ingLines.push(t);
+      else if (/^\d+[\)\.\-]/.test(t) || /^[a-z]\)/i.test(t)) prepLines.push(t);
+      else otherLines.push(t);
     }
 
     out.ingredientes = ingLines.join("\n").trim();
     out.preparo = prepLines.join("\n").trim();
-
-    // se sobrou texto, joga em observações
     if (otherLines.length) out.observacoes = otherLines.join("\n").trim();
   }
 
-  // limpeza final
   out.titulo = cleanHeading(out.titulo);
   out.ingredientes = String(out.ingredientes || "").trim();
   out.preparo = String(out.preparo || "").trim();
@@ -284,7 +224,7 @@ function parseQuickRecipe(rawText) {
   return out;
 }
 
-// ✅ helper: pega data ISO "mais recente" de uma lista (para decidir merge)
+// ✅ helper: pega data ISO "mais recente"
 function getLatestISO(list) {
   const arr = Array.isArray(list) ? list : [];
   let best = "";
@@ -295,32 +235,49 @@ function getLatestISO(list) {
   return best;
 }
 
-// Componente principal da página de Receitas
-export default function ReceitasPage() {
-  // Lista de receitas armazenadas
-  const [items, setItems] = useState([]);
+/* ------------------- REGRA IMPORTANTE -------------------
+   ✅ Firestore: salva receitas SEM foto
+   ✅ LocalStorage: salva receitas COM foto
+---------------------------------------------------------- */
 
-  // ✅ usuário logado (para salvar online)
+// Remove foto para enviar ao Firestore
+function stripFotosForCloud(arr) {
+  const list = Array.isArray(arr) ? arr : [];
+  return list.map((r) => {
+    const { foto, ...rest } = r || {};
+    return { ...rest, foto: "" }; // garante que nunca vai foto/base64
+  });
+}
+
+// Reaplica fotos do local (por id) em cima do que veio do cloud
+function mergeLocalFotos(cloudArr, localArr) {
+  const c = Array.isArray(cloudArr) ? cloudArr : [];
+  const l = Array.isArray(localArr) ? localArr : [];
+  const map = new Map(l.map((r) => [r?.id, r?.foto || ""]));
+  return c.map((r) => {
+    const localFoto = map.get(r?.id) || "";
+    return { ...r, foto: localFoto || "" };
+  });
+}
+
+/* -------------------- Page -------------------- */
+
+export default function ReceitasPage() {
+  const [items, setItems] = useState([]);
   const [uid, setUid] = useState(null);
 
-  // ✅ evita “ida e volta” no primeiro load
+  // evita “ida e volta” no primeiro load
   const hydratingRef = useRef(false);
 
-  // Controla a tela atual:
-  // - "lista": listagem com filtros
-  // - "form": criar/editar receita
-  // - "ver": visualizar receita como “livro”
-  // - "importar": importar por foto do dispositivo
-  // - "colar": colar texto único e organizar
   const [modo, setModo] = useState("lista");
 
   // filtro
-  const [q, setQ] = useState(""); // Texto de pesquisa
-  const [cat, setCat] = useState("Todas"); // Categoria do filtro
-  const [somenteFavoritas, setSomenteFavoritas] = useState(false); // Mostra apenas favoritas
+  const [q, setQ] = useState("");
+  const [cat, setCat] = useState("Todas");
+  const [somenteFavoritas, setSomenteFavoritas] = useState(false);
 
   // form
-  const [editId, setEditId] = useState(null); // id em edição (se null, é nova)
+  const [editId, setEditId] = useState(null);
   const [titulo, setTitulo] = useState("");
   const [categoria, setCategoria] = useState("Doces");
   const [tempo, setTempo] = useState("");
@@ -331,39 +288,37 @@ export default function ReceitasPage() {
   const [preparo, setPreparo] = useState("");
   const [observacoes, setObservacoes] = useState("");
   const [armazenamento, setArmazenamento] = useState("");
-  const [foto, setFoto] = useState(""); // Foto como DataURL
+  const [foto, setFoto] = useState(""); // ✅ fica só no localStorage
 
-  // ✅ colar/entrada rápida (texto único)
+  // colar
   const [quickText, setQuickText] = useState("");
 
-  // importar por imagem
+  // importar
   const [importFile, setImportFile] = useState(null);
   const [importPreview, setImportPreview] = useState("");
   const [importLoading, setImportLoading] = useState(false);
   const [importError, setImportError] = useState("");
   const [importHint, setImportHint] = useState("");
 
-  // ver receita
+  // ver
   const [currentId, setCurrentId] = useState(null);
-  const [pageFlipDir, setPageFlipDir] = useState("next"); // next | prev
+  const [pageFlipDir, setPageFlipDir] = useState("next");
   const flipTimer = useRef(null);
 
-  // visual simples
-  const [viewMode, setViewMode] = useState("foto"); // foto | texto
+  const [viewMode, setViewMode] = useState("foto");
 
-  // ---------------- MODAL BONITO ----------------
+  // modal
   const [modal, setModal] = useState({
     open: false,
     title: "",
     message: "",
-    variant: "info", // info | danger
+    variant: "info",
     confirmText: "OK",
     cancelText: "",
     onConfirm: null,
     onCancel: null,
   });
 
-  // Abre modal simples (equivalente ao alert)
   function showInfo(title, message) {
     setModal({
       open: true,
@@ -377,7 +332,6 @@ export default function ReceitasPage() {
     });
   }
 
-  // Abre modal de confirmação (equivalente ao confirm)
   function showConfirm(title, message, onYes) {
     setModal({
       open: true,
@@ -394,7 +348,6 @@ export default function ReceitasPage() {
     });
   }
 
-  // ✅ Fecha o modal ao apertar ESC
   useEffect(() => {
     function onKeyDown(e) {
       if (e.key === "Escape" && modal.open) {
@@ -407,7 +360,7 @@ export default function ReceitasPage() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [modal.open, modal.onCancel, modal.onConfirm]);
 
-  // ✅ observa login (uid)
+  // login
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (user) => {
       setUid(user?.uid || null);
@@ -415,13 +368,13 @@ export default function ReceitasPage() {
     return () => unsub();
   }, []);
 
-  // ✅ load localStorage primeiro (sempre)
+  // load local primeiro
   useEffect(() => {
     const saved = safeJSONParse(localStorage.getItem(LS_KEY), []);
     setItems(Array.isArray(saved) ? saved : []);
   }, []);
 
-  // ✅ load/sync Firestore quando logar
+  // load/sync Firestore quando logar (MAS SEM FOTO NO CLOUD)
   useEffect(() => {
     let cancelled = false;
 
@@ -437,36 +390,39 @@ export default function ReceitasPage() {
         const localLatest = getLatestISO(localArr);
 
         if (!snap.exists()) {
-          // se não existe no cloud ainda, sobe o local (se tiver algo)
+          // cloud não existe: sobe o local (SEM FOTO)
           if (localArr.length) {
-            await setDoc(ref, { items: localArr, updatedAt: nowISO() }, { merge: true });
+            const payload = stripFotosForCloud(localArr);
+            await setDoc(ref, { items: payload, updatedAt: nowISO() }, { merge: true });
           }
           return;
         }
 
         const data = snap.data() || {};
-        const cloudArr = Array.isArray(data.items) ? data.items : [];
-        const cloudLatest = getLatestISO(cloudArr);
+        const cloudArrRaw = Array.isArray(data.items) ? data.items : [];
+        const cloudLatest = getLatestISO(cloudArrRaw);
 
-        // decisão: usa o mais “novo”
+        // Decide quem “ganha” (mais novo)
         const pickCloud = cloudLatest >= localLatest;
 
-        const chosen = pickCloud ? cloudArr : localArr;
+        // escolhido (cloud ou local), mas:
+        // - se for cloud, reaplica fotos do local (por id)
+        // - se for local, mantém fotos no aparelho e manda SEM FOTO pro cloud depois
+        let chosen = pickCloud ? mergeLocalFotos(cloudArrRaw, localArr) : localArr;
 
         if (cancelled) return;
 
-        // aplica sem disparar “sync de volta” imediatamente
         hydratingRef.current = true;
         setItems(chosen);
         localStorage.setItem(LS_KEY, JSON.stringify(chosen));
-        // libera depois de um tick
         setTimeout(() => {
           hydratingRef.current = false;
         }, 0);
 
-        // se local era mais novo, atualiza cloud
+        // se local era mais novo, atualiza cloud (SEM FOTO)
         if (!pickCloud && chosen.length) {
-          await setDoc(ref, { items: chosen, updatedAt: nowISO() }, { merge: true });
+          const payload = stripFotosForCloud(chosen);
+          await setDoc(ref, { items: payload, updatedAt: nowISO() }, { merge: true });
         }
       } catch (e) {
         console.error("Falha ao carregar/sincronizar receitas (cloud):", e);
@@ -479,26 +435,24 @@ export default function ReceitasPage() {
     };
   }, [uid]);
 
-  // Salva lista no estado e no localStorage e (se logada) no Firestore
+  // ✅ salva local + cloud (SEM FOTO NO CLOUD)
   async function save(next) {
     setItems(next);
     localStorage.setItem(LS_KEY, JSON.stringify(next));
 
-    // evita salvar no cloud durante hidratação inicial
     if (hydratingRef.current) return;
 
-    // cloud
     if (uid) {
       try {
         const ref = doc(db, "users", uid, "pwa", "receitas");
-        await setDoc(ref, { items: next, updatedAt: nowISO() }, { merge: true });
+        const payload = stripFotosForCloud(next); // ✅ aqui garante: foto nunca vai
+        await setDoc(ref, { items: payload, updatedAt: nowISO() }, { merge: true });
       } catch (e) {
         console.error("Falha ao salvar receitas no cloud:", e);
       }
     }
   }
 
-  // Lista filtrada e ordenada
   const filtered = useMemo(() => {
     const nq = normalizeText(q);
     return (items || [])
@@ -514,18 +468,15 @@ export default function ReceitasPage() {
       .sort((a, b) => (b.updatedAt || b.createdAt || "").localeCompare(a.updatedAt || a.createdAt || ""));
   }, [items, q, cat, somenteFavoritas]);
 
-  // Receita atual aberta no modo "ver"
   const current = useMemo(() => {
     return (items || []).find((r) => r.id === currentId) || null;
   }, [items, currentId]);
 
-  // Índice da receita atual dentro da lista filtrada
   const currentIndex = useMemo(() => {
     if (!currentId) return -1;
     return filtered.findIndex((r) => r.id === currentId);
   }, [filtered, currentId]);
 
-  // Reseta campos do formulário
   function resetForm() {
     setEditId(null);
     setTitulo("");
@@ -543,15 +494,12 @@ export default function ReceitasPage() {
 
   function applyParsedToForm(parsed) {
     if (!parsed) return;
-
-    // não reseta tudo à força: só preenche o que tiver
     if (parsed.titulo) setTitulo(parsed.titulo);
     if (parsed.categoria) setCategoria(parsed.categoria);
     if (parsed.tempo) setTempo(parsed.tempo);
     if (parsed.rendimento) setRendimento(parsed.rendimento);
     if (parsed.dificuldade) setDificuldade(parsed.dificuldade);
     if (parsed.tags) setTags(parsed.tags);
-
     if (parsed.ingredientes) setIngredientes(parsed.ingredientes);
     if (parsed.preparo) setPreparo(parsed.preparo);
     if (parsed.observacoes) setObservacoes(parsed.observacoes);
@@ -630,10 +578,10 @@ export default function ReceitasPage() {
     const f = e.target.files?.[0];
     if (!f) return;
     const dataUrl = await fileToDataUrl(f);
-    setFoto(dataUrl);
+    setFoto(dataUrl); // ✅ fica no localStorage; no cloud vai como ""
   }
 
-  // ✅✅✅ ADICIONADO (somente o que você pediu): salvar direto do texto colado
+  // colar
   function tagsToArray(tagsText) {
     return String(tagsText || "")
       .split(",")
@@ -669,12 +617,7 @@ export default function ReceitasPage() {
     };
 
     const next = [
-      {
-        id: uuid(),
-        createdAt: nowISO(),
-        favorita: false,
-        ...base,
-      },
+      { id: uuid(), createdAt: nowISO(), favorita: false, ...base },
       ...(items || []),
     ];
 
@@ -684,7 +627,6 @@ export default function ReceitasPage() {
     setQuickText("");
     showInfo("Salvo ✅", "Receita salva direto a partir do texto colado.");
   }
-  // ✅✅✅ FIM DO ADICIONADO
 
   function submit() {
     const t = titulo.trim();
@@ -708,7 +650,7 @@ export default function ReceitasPage() {
       preparo: preparo.trim(),
       observacoes: observacoes.trim(),
       armazenamento: armazenamento.trim(),
-      foto,
+      foto, // ✅ local ok / cloud vai ser removida no save()
       updatedAt: nowISO(),
     };
 
@@ -717,12 +659,7 @@ export default function ReceitasPage() {
       save(next);
     } else {
       const next = [
-        {
-          id: uuid(),
-          createdAt: nowISO(),
-          favorita: false,
-          ...base,
-        },
+        { id: uuid(), createdAt: nowISO(), favorita: false, ...base },
         ...(items || []),
       ];
       save(next);
@@ -803,7 +740,6 @@ export default function ReceitasPage() {
     }
   }
 
-  // Render principal
   return (
     <div className="page receitas">
       <h2 className="page-title">🍳 Receitas</h2>
@@ -814,7 +750,11 @@ export default function ReceitasPage() {
           <div className="card">
             <div className="field">
               <label>Pesquisar</label>
-              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ex: brigadeiro, leite ninho, farinha, forno..." />
+              <input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Ex: brigadeiro, leite ninho, farinha, forno..."
+              />
             </div>
 
             <div className="filters-grid">
@@ -847,18 +787,32 @@ export default function ReceitasPage() {
                 + Nova receita
               </button>
 
-              <button type="button" className="primary-btn" onClick={openColar} style={{ flex: 1 }} title="Colar texto de uma receita e organizar">
+              <button
+                type="button"
+                className="primary-btn"
+                onClick={openColar}
+                style={{ flex: 1 }}
+                title="Colar texto de uma receita e organizar"
+              >
                 ✍️ Colar
               </button>
 
-              <button type="button" className="primary-btn" onClick={openImport} style={{ flex: 1 }} title="Importar por foto do dispositivo">
+              <button
+                type="button"
+                className="primary-btn"
+                onClick={openImport}
+                style={{ flex: 1 }}
+                title="Importar por foto do dispositivo"
+              >
                 🖼 Importar
               </button>
             </div>
 
-            {/* ✅ status simples do cloud */}
+            {/* ✅ status do cloud */}
             <div className="muted small" style={{ marginTop: 10 }}>
-              {uid ? "☁️ Salvando online (logada)" : "📱 Salvando só neste aparelho (sem login)"}
+              {uid
+                ? "☁️ Salvando online (SEM fotos). Fotos ficam só no aparelho."
+                : "📱 Salvando só neste aparelho (sem login)."}
             </div>
           </div>
 
@@ -982,20 +936,12 @@ export default function ReceitasPage() {
         </div>
       )}
 
-      {/* MODO COLAR (entrada única) */}
+      {/* MODO COLAR */}
       {modo === "colar" && (
         <div className="card">
           <div className="card-header-row">
             <h3 style={{ margin: 0 }}>Colar receita (texto único)</h3>
-            <button
-              type="button"
-              className="chip"
-              style={{ width: "auto" }}
-              onClick={() => {
-                setModo("lista");
-                setQuickText("");
-              }}
-            >
+            <button type="button" className="chip" style={{ width: "auto" }} onClick={() => (setModo("lista"), setQuickText(""))}>
               Voltar
             </button>
           </div>
@@ -1020,7 +966,6 @@ Tags: bolo, forno, chocolate
 Ingredientes:
 - 3 cenouras
 - 3 ovos
-- ...
 
 Modo de preparo:
 1) Bata no liquidificador...
@@ -1031,10 +976,7 @@ Modo de preparo:
           <button
             type="button"
             className="primary-btn"
-            onClick={() => {
-              const parsed = parseQuickRecipe(quickText);
-              saveParsedRecipeDirect(parsed);
-            }}
+            onClick={() => saveParsedRecipeDirect(parseQuickRecipe(quickText))}
             disabled={!quickText.trim()}
           >
             ✅ Organizar e salvar
@@ -1082,9 +1024,7 @@ Modo de preparo:
               <label>Categoria</label>
               <select value={categoria} onChange={(e) => setCategoria(e.target.value)}>
                 {CATEGORIAS.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
+                  <option key={c} value={c}>{c}</option>
                 ))}
               </select>
             </div>
@@ -1116,7 +1056,7 @@ Modo de preparo:
           </div>
 
           <div className="field">
-            <label>Foto (opcional)</label>
+            <label>Foto (opcional) — fica só no aparelho</label>
             <input type="file" accept="image/*" onChange={onFotoChange} />
 
             {foto ? (
@@ -1131,42 +1071,22 @@ Modo de preparo:
 
           <div className="field">
             <label>Ingredientes *</label>
-            <textarea
-              className="receita-textarea"
-              value={ingredientes}
-              onChange={(e) => setIngredientes(e.target.value)}
-              placeholder={"Ex:\n- 1 lata de leite condensado\n- 1 colher (sopa) de manteiga\n- 4 colheres (sopa) de chocolate"}
-            />
+            <textarea className="receita-textarea" value={ingredientes} onChange={(e) => setIngredientes(e.target.value)} />
           </div>
 
           <div className="field">
             <label>Modo de preparo *</label>
-            <textarea
-              className="receita-textarea"
-              value={preparo}
-              onChange={(e) => setPreparo(e.target.value)}
-              placeholder={"Ex:\n1) Misture tudo na panela\n2) Mexa até desgrutar\n3) Enrole e passe no granulado"}
-            />
+            <textarea className="receita-textarea" value={preparo} onChange={(e) => setPreparo(e.target.value)} />
           </div>
 
           <div className="field">
             <label>Observações / Dicas</label>
-            <textarea
-              className="receita-textarea"
-              value={observacoes}
-              onChange={(e) => setObservacoes(e.target.value)}
-              placeholder="Ex: ponto do brigadeiro, fogo baixo, tempo..."
-            />
+            <textarea className="receita-textarea" value={observacoes} onChange={(e) => setObservacoes(e.target.value)} />
           </div>
 
           <div className="field">
             <label>Armazenamento / Validade</label>
-            <textarea
-              className="receita-textarea"
-              value={armazenamento}
-              onChange={(e) => setArmazenamento(e.target.value)}
-              placeholder="Ex: 3 dias fora, 7 dias geladeira, 30 dias freezer..."
-            />
+            <textarea className="receita-textarea" value={armazenamento} onChange={(e) => setArmazenamento(e.target.value)} />
           </div>
 
           <button type="button" className="primary-btn" onClick={submit}>
@@ -1198,27 +1118,13 @@ Modo de preparo:
 
           {current.foto ? (
             <div className="card" style={{ padding: 10, borderRadius: 16, overflow: "hidden", border: "1px solid rgba(255,255,255,.12)" }}>
-              <img
-                src={current.foto}
-                alt="Foto da receita"
-                style={{ width: "100%", display: "block", borderRadius: 12, objectFit: "cover" }}
-              />
+              <img src={current.foto} alt="Foto da receita" style={{ width: "100%", display: "block", borderRadius: 12, objectFit: "cover" }} />
 
               <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-                <button
-                  type="button"
-                  className={"chip " + (viewMode === "foto" ? "chip-active" : "")}
-                  style={{ width: "auto" }}
-                  onClick={() => setViewMode("foto")}
-                >
+                <button type="button" className={"chip " + (viewMode === "foto" ? "chip-active" : "")} style={{ width: "auto" }} onClick={() => setViewMode("foto")}>
                   🖼 Só foto
                 </button>
-                <button
-                  type="button"
-                  className={"chip " + (viewMode === "texto" ? "chip-active" : "")}
-                  style={{ width: "auto" }}
-                  onClick={() => setViewMode("texto")}
-                >
+                <button type="button" className={"chip " + (viewMode === "texto" ? "chip-active" : "")} style={{ width: "auto" }} onClick={() => setViewMode("texto")}>
                   📄 Ver texto
                 </button>
               </div>
@@ -1242,9 +1148,7 @@ Modo de preparo:
               {current.tags?.length ? (
                 <div className="paper-tags">
                   {current.tags.map((t) => (
-                    <span key={t} className="tag-pill">
-                      #{t}
-                    </span>
+                    <span key={t} className="tag-pill">#{t}</span>
                   ))}
                 </div>
               ) : null}
@@ -1289,19 +1193,14 @@ Modo de preparo:
             <button type="button" className="primary-btn" onClick={goPrev} disabled={currentIndex <= 0}>
               ◀ Receita anterior
             </button>
-            <button
-              type="button"
-              className="primary-btn"
-              onClick={goNext}
-              disabled={currentIndex < 0 || currentIndex >= filtered.length - 1}
-            >
+            <button type="button" className="primary-btn" onClick={goNext} disabled={currentIndex < 0 || currentIndex >= filtered.length - 1}>
               Próxima receita ▶
             </button>
           </div>
         </div>
       )}
 
-      {/* ---------------- MODAL ÚNICO DO APP ---------------- */}
+      {/* MODAL */}
       {modal.open && (
         <div
           className="modal-backdrop"
@@ -1321,22 +1220,12 @@ Modo de preparo:
 
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 14 }}>
               {modal.cancelText ? (
-                <button
-                  type="button"
-                  className="chip"
-                  style={{ width: "auto" }}
-                  onClick={() => (modal.onCancel ? modal.onCancel() : setModal((m) => ({ ...m, open: false })))}
-                >
+                <button type="button" className="chip" style={{ width: "auto" }} onClick={() => (modal.onCancel ? modal.onCancel() : setModal((m) => ({ ...m, open: false })))}>
                   {modal.cancelText}
                 </button>
               ) : null}
 
-              <button
-                type="button"
-                className="primary-btn"
-                style={{ width: "auto", padding: "8px 12px" }}
-                onClick={() => (modal.onConfirm ? modal.onConfirm() : setModal((m) => ({ ...m, open: false })))}
-              >
+              <button type="button" className="primary-btn" style={{ width: "auto", padding: "8px 12px" }} onClick={() => (modal.onConfirm ? modal.onConfirm() : setModal((m) => ({ ...m, open: false })))}>
                 {modal.confirmText || "OK"}
               </button>
             </div>
@@ -1348,7 +1237,6 @@ Modo de preparo:
 }
 
 /* helpers */
-// Formata ISO como "dd/mm/aaaa hh:mm"
 function fmtBRDateTime(iso) {
   if (!iso) return "-";
   const d = new Date(iso);
