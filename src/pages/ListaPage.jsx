@@ -172,6 +172,16 @@ export default function ListaPage() {
   // ✅ FIX: ref para o estado atual de escuta (evita “state stale” no onend)
   const listeningRef = useRef(false);
 
+  function toastMsg(texto) {
+    setToastText(texto);
+  }
+
+  useEffect(() => {
+    if (!toastText) return;
+    const t = setTimeout(() => setToastText(""), 2200);
+    return () => clearTimeout(t);
+  }, [toastText]);
+
   // ---- Auto-clean: delete lists 100% done after 1 week
   function cleanupAutoDeleteLists(currentStore) {
     const now = Date.now();
@@ -233,7 +243,9 @@ export default function ListaPage() {
       const data = snap.data();
       if (!data || !data.store) return null;
       return data.store;
-    } catch {
+    } catch (e) {
+      // ✅ FIX: mostra o erro real
+      console.error("Falha ao carregar Listas do cloud:", e);
       return null;
     }
   }
@@ -242,8 +254,10 @@ export default function ListaPage() {
     try {
       const ref = cloudDocRef(userId);
       await setDoc(ref, { store: nextStore, updatedAt: nowISO() }, { merge: true });
-    } catch {
-      // offline/erro: silencioso
+    } catch (e) {
+      // ✅ FIX: mostra o erro real (antes era silencioso)
+      console.error("Falha ao salvar Listas no cloud:", e);
+      toastMsg("⚠️ Não consegui salvar online (veja o Console).");
     }
   }
 
@@ -256,16 +270,6 @@ export default function ListaPage() {
       saveToCloud(uid, next);
     }
   }
-
-  function toastMsg(texto) {
-    setToastText(texto);
-  }
-
-  useEffect(() => {
-    if (!toastText) return;
-    const t = setTimeout(() => setToastText(""), 2200);
-    return () => clearTimeout(t);
-  }, [toastText]);
 
   // ---- Load + Migration + Cleanup + ✅ Cloud load depois
   useEffect(() => {
