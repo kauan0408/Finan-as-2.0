@@ -425,7 +425,12 @@ export default function ReceitasPage() {
           await setDoc(ref, { items: payload, updatedAt: nowISO() }, { merge: true });
         }
       } catch (e) {
+        // ✅ FIX: mostrar erro real (antes você não via nada no app)
         console.error("Falha ao carregar/sincronizar receitas (cloud):", e);
+        showInfo(
+          "Não consegui sincronizar online",
+          "As receitas continuam salvas no aparelho.\n\nAbra o Console (F12 > Console) para ver o erro e me mande a mensagem."
+        );
       }
     }
 
@@ -433,6 +438,7 @@ export default function ReceitasPage() {
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [uid]);
 
   // ✅ salva local + cloud (SEM FOTO NO CLOUD)
@@ -448,7 +454,12 @@ export default function ReceitasPage() {
         const payload = stripFotosForCloud(next); // ✅ aqui garante: foto nunca vai
         await setDoc(ref, { items: payload, updatedAt: nowISO() }, { merge: true });
       } catch (e) {
+        // ✅ FIX: mostrar erro real (antes era só console)
         console.error("Falha ao salvar receitas no cloud:", e);
+        showInfo(
+          "Falha ao salvar online",
+          "Salvei no aparelho, mas não consegui salvar na nuvem.\n\nAbra o Console (F12 > Console) e me mande o erro."
+        );
       }
     }
   }
@@ -616,10 +627,7 @@ export default function ReceitasPage() {
       updatedAt: nowISO(),
     };
 
-    const next = [
-      { id: uuid(), createdAt: nowISO(), favorita: false, ...base },
-      ...(items || []),
-    ];
+    const next = [{ id: uuid(), createdAt: nowISO(), favorita: false, ...base }, ...(items || [])];
 
     save(next);
     setModo("lista");
@@ -658,10 +666,7 @@ export default function ReceitasPage() {
       const next = (items || []).map((r) => (r.id === editId ? { ...r, ...base } : r));
       save(next);
     } else {
-      const next = [
-        { id: uuid(), createdAt: nowISO(), favorita: false, ...base },
-        ...(items || []),
-      ];
+      const next = [{ id: uuid(), createdAt: nowISO(), favorita: false, ...base }, ...(items || [])];
       save(next);
     }
 
@@ -1131,7 +1136,7 @@ Modo de preparo:
             </div>
           ) : null}
 
-          {viewMode === "texto" || !current.foto ? (
+          {(viewMode === "texto" || !current.foto) ? (
             <div className={"paper card " + (document.documentElement.classList.contains("page-flip-active") ? "paper-flip" : "")}>
               <div className="paper-header">
                 <div>
@@ -1220,12 +1225,22 @@ Modo de preparo:
 
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 14 }}>
               {modal.cancelText ? (
-                <button type="button" className="chip" style={{ width: "auto" }} onClick={() => (modal.onCancel ? modal.onCancel() : setModal((m) => ({ ...m, open: false })))}>
+                <button
+                  type="button"
+                  className="chip"
+                  style={{ width: "auto" }}
+                  onClick={() => (modal.onCancel ? modal.onCancel() : setModal((m) => ({ ...m, open: false })))}
+                >
                   {modal.cancelText}
                 </button>
               ) : null}
 
-              <button type="button" className="primary-btn" style={{ width: "auto", padding: "8px 12px" }} onClick={() => (modal.onConfirm ? modal.onConfirm() : setModal((m) => ({ ...m, open: false })))}>
+              <button
+                type="button"
+                className="primary-btn"
+                style={{ width: "auto", padding: "8px 12px" }}
+                onClick={() => (modal.onConfirm ? modal.onConfirm() : setModal((m) => ({ ...m, open: false })))}
+              >
                 {modal.confirmText || "OK"}
               </button>
             </div>
