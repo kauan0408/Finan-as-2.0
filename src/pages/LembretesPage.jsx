@@ -1,12 +1,8 @@
 // src/pages/LembretesPage.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useFinance } from "../App.jsx"; // ✅ usa o contexto do App (online)
 
-// ✅ Firebase online (Firestore)
-import { auth, db } from "../firebase"; // ajuste o caminho se necessário
-import { onAuthStateChanged } from "firebase/auth";
-import { doc, getDoc, setDoc } from "firebase/firestore";
-
-const LS_KEY = "pwa_lembretes_v1";
+const LS_KEY_FALLBACK = "pwa_lembretes_v1"; // ✅ fallback antigo (só pra tentar migrar)
 
 /* -------- helpers -------- */
 
@@ -130,13 +126,12 @@ function parseMonthDaysList(s) {
   return Array.from(new Set(nums)).sort((a, b) => a - b);
 }
 
-// Ajusta "dia do mês" para último dia do mês (ex: 31 em fevereiro vira 28/29)
+// Ajusta "dia do mês" para último dia do mês
 function clampDayToMonth(year, monthIndex, day) {
   const last = new Date(year, monthIndex + 1, 0).getDate();
   return Math.min(Math.max(1, day), last);
 }
 
-// ✅ Próxima ocorrência por intervalo
 function computeNextDueIntervalFromBase(baseDate, intervalDays, timeHHmm) {
   const base = makeDateAtTime(baseDate, timeHHmm || "09:00");
   const now = Date.now();
@@ -144,7 +139,6 @@ function computeNextDueIntervalFromBase(baseDate, intervalDays, timeHHmm) {
   return base;
 }
 
-// ✅ Próxima ocorrência por "dias da semana" (0=dom ... 6=sab)
 function computeNextDueWeekdays(fromDate, weekdays, timeHHmm) {
   const days = Array.isArray(weekdays) ? weekdays.slice() : [];
   if (days.length === 0) return null;
@@ -164,7 +158,6 @@ function computeNextDueWeekdays(fromDate, weekdays, timeHHmm) {
   return null;
 }
 
-// ✅ Próxima ocorrência por "dias do mês" (ex: [1, 10, 15])
 function computeNextDueMonthDays(fromDate, monthDays, timeHHmm) {
   const md = Array.isArray(monthDays) ? monthDays.slice() : [];
   if (md.length === 0) return null;
@@ -199,13 +192,11 @@ function computeNextDueMonthDays(fromDate, monthDays, timeHHmm) {
 
 /* -------------------- conflito de dia -------------------- */
 
-// Considera conflito por "dia" (YYYY-MM-DD)
 function hasDateConflict(list, dateKey, excludeId) {
   const items = Array.isArray(list) ? list : [];
   for (const it of items) {
     if (excludeId && it.id === excludeId) continue;
 
-    // avulso: conflito se NÃO concluído e data bate
     if (it.tipo === "avulso") {
       if (it.done) continue;
       const dt = parseLocalDateTime(it.quando);
@@ -214,7 +205,6 @@ function hasDateConflict(list, dateKey, excludeId) {
       continue;
     }
 
-    // recorrente: conflito se ativo e nextDue no mesmo dia
     if (it.tipo === "recorrente") {
       if (it.enabled === false) continue;
       const dt = new Date(it.nextDueISO || "");
@@ -225,10 +215,9 @@ function hasDateConflict(list, dateKey, excludeId) {
   return false;
 }
 
-/* -------------------- NOVO motor de recorrência (diário/semanal/mensal/aniversário/personalizado) -------------------- */
+/* -------------------- motor de recorrência -------------------- */
 
 function parseFixedDatesList(text) {
-  // aceita "2026-02-05, 2026-02-12" / linhas / espaços
   const parts = String(text || "")
     .split(/[,;\n]/g)
     .map((x) => x.trim())
@@ -258,7 +247,6 @@ function nextFromFixedDates(datesYMD, fromDate, timeHHmm) {
 }
 
 function nextAnniversary(dataBaseYMD, fromDate, timeHHmm) {
-  // dataBaseYMD: "YYYY-MM-DD" (usa mês/dia)
   const base = parseYMD(dataBaseYMD);
   if (!base) return null;
 
@@ -268,7 +256,6 @@ function nextAnniversary(dataBaseYMD, fromDate, timeHHmm) {
   const m = base.getMonth();
   const d = base.getDate();
 
-  // tenta ano atual, depois próximo
   for (let add = 0; add <= 2; add++) {
     const year = from.getFullYear() + add;
     const dayClamped = clampDayToMonth(year, m, d);
@@ -282,7 +269,7 @@ function nextAnniversary(dataBaseYMD, fromDate, timeHHmm) {
 }
 
 function computeNextDueAdvanced(itemLike, fromDate) {
-  const scheduleType = itemLike?.scheduleType || "intervalo"; // diario|semanal|mensal|aniversario|personalizado|intervalo
+  const scheduleType = itemLike?.scheduleType || "intervalo";
   const timeHHmm = itemLike?.timeHHmm || "09:00";
 
   if (scheduleType === "diario") {
@@ -308,21 +295,13 @@ function computeNextDueAdvanced(itemLike, fromDate) {
     return nextFromFixedDates(itemLike.datasFixas || [], fromDate, timeHHmm);
   }
 
-  // intervalo
   const intervalDays = unitToDays(itemLike.unit || "dias", itemLike.every || 1);
   return computeNextDueIntervalFromBase(fromDate, intervalDays, timeHHmm);
 }
 
-/**
- * conflictMode:
- * - "allow"  -> permite
- * - "shift"  -> empurra para próximo dia disponível
- * - "block"  -> bloqueia salvar se cair em dia ocupado
- */
 function computeNextDueWithConflict(itemLike, fromDate, fullList, excludeId) {
   const conflictMode =
-    itemLike?.conflictMode ||
-    (itemLike?.noSameDay ? "shift" : "allow"); // compat antigo
+    itemLike?.conflictMode || (itemLike?.noSameDay ? "shift" : "allow");
 
   const noSameDayShift = conflictMode === "shift";
   const block = conflictMode === "block";
@@ -336,8 +315,10 @@ function computeNextDueWithConflict(itemLike, fromDate, fullList, excludeId) {
           const mode = itemLike?.scheduleMode || "interval";
           const timeHHmm = itemLike?.timeHHmm || "09:00";
 
-          if (mode === "weekdays") return computeNextDueWeekdays(base, itemLike.weekdays || [], timeHHmm);
-          if (mode === "monthdays") return computeNextDueMonthDays(base, itemLike.monthDays || [], timeHHmm);
+          if (mode === "weekdays")
+            return computeNextDueWeekdays(base, itemLike.weekdays || [], timeHHmm);
+          if (mode === "monthdays")
+            return computeNextDueMonthDays(base, itemLike.monthDays || [], timeHHmm);
 
           const intervalDays = unitToDays(itemLike.unit || "dias", itemLike.every || 1);
           return computeNextDueIntervalFromBase(base, intervalDays, timeHHmm);
@@ -392,59 +373,67 @@ function Modal({ open, title, children, onClose }) {
 /* -------------------- Page -------------------- */
 
 export default function LembretesPage() {
-  const [list, setList] = useState([]);
+  // ✅ pega do App (online)
+  const { user, lembretes, setLembretes } = useFinance();
 
-  // ✅ ONLINE
-  const [uid, setUid] = useState(null);
-  const [cloudReady, setCloudReady] = useState(false);
+  // ✅ fonte única de verdade
+  const list = Array.isArray(lembretes) ? lembretes : [];
 
-  // ✅ Form
-  const [tipo, setTipo] = useState("avulso"); // avulso | recorrente
+  function save(next) {
+    // salva no App (App.jsx que sincroniza no Firestore)
+    setLembretes(Array.isArray(next) ? next : []);
+  }
+
+  // ✅ MIGRAÇÃO (uma vez): se você tinha dados no localStorage antigo, copia pro novo estado
+  useEffect(() => {
+    if (list.length > 0) return;
+    try {
+      const saved = safeJSONParse(localStorage.getItem(LS_KEY_FALLBACK) || "[]", []);
+      if (Array.isArray(saved) && saved.length > 0) {
+        setLembretes(saved);
+      }
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ✅ UI/Form
+  const [tipo, setTipo] = useState("avulso");
   const [titulo, setTitulo] = useState("");
   const [quando, setQuando] = useState("");
 
-  // ✅ Recorrente: NOVO "scheduleType"
-  const [scheduleType, setScheduleType] = useState("intervalo"); // intervalo|diario|semanal|mensal|aniversario|personalizado
+  const [scheduleType, setScheduleType] = useState("intervalo");
+  const [scheduleMode, setScheduleMode] = useState("interval");
 
-  // ✅ compat antigo
-  const [scheduleMode, setScheduleMode] = useState("interval"); // interval | weekdays | monthdays
-
-  // intervalo
   const [every, setEvery] = useState("3");
   const [unit, setUnit] = useState("dias");
 
-  // horário
   const [timeHHmm, setTimeHHmm] = useState("09:00");
 
-  // semanal
-  const [weekdays, setWeekdays] = useState([1, 2, 3, 4, 5]); // seg-sex padrão
+  const [weekdays, setWeekdays] = useState([1, 2, 3, 4, 5]);
+  const [diaMes, setDiaMes] = useState("5");
 
-  // mensal
-  const [diaMes, setDiaMes] = useState("5"); // 1..31
-
-  // aniversário / personalizado
-  const [dataBaseYMD, setDataBaseYMD] = useState(""); // YYYY-MM-DD
+  const [dataBaseYMD, setDataBaseYMD] = useState("");
   const [datasFixasText, setDatasFixasText] = useState("2026-02-05, 2026-03-10");
 
-  // monthdays antigo
   const [monthDaysText, setMonthDaysText] = useState("5, 15, 25");
 
-  // ✅ nível/duração
-  const [nivel, setNivel] = useState("rapido"); // rapido|medio|demorado
-
-  // ✅ conflito: allow | shift | block
+  const [nivel, setNivel] = useState("rapido");
   const [conflictMode, setConflictMode] = useState("allow");
 
-  // ✅ UI
   const [toastText, setToastText] = useState("");
   const [search, setSearch] = useState("");
-  const [tab, setTab] = useState("pending"); // pending | done | all
-  const [range, setRange] = useState("all"); // all | today | week
+  const [tab, setTab] = useState("pending");
+  const [range, setRange] = useState("all");
 
   const [menuModalOpen, setMenuModalOpen] = useState(false);
 
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const [confirmCfg, setConfirmCfg] = useState({ title: "", body: "", danger: false, action: null });
+  const [confirmCfg, setConfirmCfg] = useState({
+    title: "",
+    body: "",
+    danger: false,
+    action: null,
+  });
 
   // ✅ Edit
   const [editingId, setEditingId] = useState(null);
@@ -452,7 +441,6 @@ export default function LembretesPage() {
   const [editingTitulo, setEditingTitulo] = useState("");
   const [editingQuando, setEditingQuando] = useState("");
 
-  // edição recorrente (novo)
   const [editingScheduleType, setEditingScheduleType] = useState("intervalo");
   const [editingEvery, setEditingEvery] = useState("3");
   const [editingUnit, setEditingUnit] = useState("dias");
@@ -464,7 +452,6 @@ export default function LembretesPage() {
   const [editingNivel, setEditingNivel] = useState("rapido");
   const [editingConflictMode, setEditingConflictMode] = useState("allow");
 
-  // compat edição antiga
   const [editingScheduleMode, setEditingScheduleMode] = useState("interval");
   const [editingMonthDaysText, setEditingMonthDaysText] = useState("5, 15, 25");
   const [editingNoSameDay, setEditingNoSameDay] = useState(false);
@@ -475,72 +462,6 @@ export default function LembretesPage() {
   const [voiceError, setVoiceError] = useState("");
   const recRef = useRef(null);
   const voiceFinalRef = useRef("");
-
-  /* ---------------- ONLINE helpers (Firestore) ---------------- */
-
-  function cloudDocRef(userId) {
-    return doc(db, "users", userId, "pwa", "lembretes");
-  }
-
-  async function loadFromCloud(userId) {
-    try {
-      const ref = cloudDocRef(userId);
-      const snap = await getDoc(ref);
-      if (!snap.exists()) return null;
-      const data = snap.data();
-      if (!data || !Array.isArray(data.items)) return null;
-      return data.items;
-    } catch {
-      return null;
-    }
-  }
-
-  async function saveToCloud(userId, items) {
-    try {
-      const ref = cloudDocRef(userId);
-      await setDoc(ref, { items, updatedAt: nowISO() }, { merge: true });
-    } catch {
-      // offline/erro -> silencioso
-    }
-  }
-
-  // ✅ Load: offline-first + sync cloud
-  useEffect(() => {
-    // 1) carrega local imediatamente
-    const saved = safeJSONParse(localStorage.getItem(LS_KEY) || "[]", []);
-    setList(Array.isArray(saved) ? saved : []);
-
-    // 2) observa login e tenta nuvem
-    const unsub = onAuthStateChanged(auth, async (user) => {
-      const userId = user?.uid || null;
-      setUid(userId);
-
-      if (!userId) {
-        setCloudReady(true);
-        return;
-      }
-
-      const cloudItems = await loadFromCloud(userId);
-      if (Array.isArray(cloudItems)) {
-        setList(cloudItems);
-        localStorage.setItem(LS_KEY, JSON.stringify(cloudItems));
-      }
-
-      setCloudReady(true);
-    });
-
-    return () => unsub();
-  }, []);
-
-  function save(next) {
-    setList(next);
-    localStorage.setItem(LS_KEY, JSON.stringify(next));
-
-    // ✅ salva online se logado
-    if (uid && cloudReady) {
-      saveToCloud(uid, next);
-    }
-  }
 
   function toastMsg(t) {
     setToastText(t);
@@ -600,6 +521,7 @@ export default function LembretesPage() {
         rec.stop();
       } catch {}
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function toggleVoice() {
@@ -642,7 +564,6 @@ export default function LembretesPage() {
     }, ms);
   }
 
-  // ✅ checa recorrentes: no horário do dia dispara e move pro próximo
   function checkRecurringTick() {
     if (!("Notification" in window)) return;
     if (Notification.permission !== "granted") return;
@@ -659,7 +580,6 @@ export default function LembretesPage() {
       if (Number.isNaN(due.getTime())) return item;
 
       if (now < due.getTime()) return item;
-
       if (item.lastNotifiedDate === todayKey) return item;
 
       try {
@@ -730,7 +650,9 @@ export default function LembretesPage() {
         updatedAt: nowISO(),
       };
 
-      const next = [item, ...list].sort((a, b) => String(a.quando || "").localeCompare(String(b.quando || "")));
+      const next = [item, ...list].sort((a, b) =>
+        String(a.quando || "").localeCompare(String(b.quando || ""))
+      );
       save(next);
 
       scheduleInPageNotification(item.titulo, dt);
@@ -780,10 +702,7 @@ export default function LembretesPage() {
 
     const computed = computeNextDueWithConflict(itemLike, new Date(), list, null);
     if (!computed) return toastMsg("Não consegui calcular a próxima data. Verifique as opções.");
-
-    if (computed.__conflict) {
-      return toastMsg("Já existe um lembrete para esse dia.");
-    }
+    if (computed.__conflict) return toastMsg("Já existe um lembrete para esse dia.");
 
     const item = {
       id: uuid(),
@@ -814,7 +733,9 @@ export default function LembretesPage() {
       updatedAt: nowISO(),
     };
 
-    const next = [item, ...list].sort((a, b) => String(a.nextDueISO || "").localeCompare(String(b.nextDueISO || "")));
+    const next = [item, ...list].sort((a, b) =>
+      String(a.nextDueISO || "").localeCompare(String(b.nextDueISO || ""))
+    );
     save(next);
 
     scheduleInPageNotification(`${item.titulo} hoje`, new Date(item.nextDueISO));
@@ -845,7 +766,6 @@ export default function LembretesPage() {
     save(next);
   }
 
-  // ✅ pagar/feito recorrente -> recalcula próxima ocorrência pelo tipo
   function payRecurring(id) {
     const todayKey = toLocalDateKey(new Date());
 
@@ -853,8 +773,7 @@ export default function LembretesPage() {
       if (i.id !== id) return i;
       if (i.tipo !== "recorrente") return i;
 
-      const base = new Date();
-      const computed = computeNextDueWithConflict(i, base, list, i.id);
+      const computed = computeNextDueWithConflict(i, new Date(), list, i.id);
 
       if (computed && computed.__conflict) {
         toastMsg("Conflito: já existe lembrete nesse dia. Ajuste o modo de conflito ou a agenda.");
@@ -886,7 +805,8 @@ export default function LembretesPage() {
 
       const computed = computeNextDueWithConflict(i, new Date(), list, i.id);
 
-      if (computed && computed.__conflict) return { ...i, paidAt: nowISO(), lastNotifiedDate: todayKey, updatedAt: nowISO() };
+      if (computed && computed.__conflict)
+        return { ...i, paidAt: nowISO(), lastNotifiedDate: todayKey, updatedAt: nowISO() };
       if (!computed || !computed.toISOString) return i;
 
       count += 1;
@@ -957,10 +877,16 @@ export default function LembretesPage() {
     setEditingWeekdays(Array.isArray(item.weekdays) ? item.weekdays : [1, 2, 3, 4, 5]);
     setEditingDiaMes(String(item.diaMes || 5));
     setEditingDataBaseYMD(item.dataBaseYMD || "");
-    setEditingDatasFixasText(Array.isArray(item.datasFixas) && item.datasFixas.length ? item.datasFixas.join(", ") : "2026-02-05, 2026-03-10");
+    setEditingDatasFixasText(
+      Array.isArray(item.datasFixas) && item.datasFixas.length
+        ? item.datasFixas.join(", ")
+        : "2026-02-05, 2026-03-10"
+    );
 
     setEditingScheduleMode(item.scheduleMode || "interval");
-    setEditingMonthDaysText(Array.isArray(item.monthDays) && item.monthDays.length ? item.monthDays.join(", ") : "5, 15, 25");
+    setEditingMonthDaysText(
+      Array.isArray(item.monthDays) && item.monthDays.length ? item.monthDays.join(", ") : "5, 15, 25"
+    );
     setEditingNoSameDay(item.noSameDay === true);
   }
 
@@ -1241,7 +1167,9 @@ export default function LembretesPage() {
             Avulsos + recorrentes (diário, semanal, mensal, aniversário, datas fixas)
           </p>
           <p className="muted small" style={{ marginTop: 6 }}>
-            {uid ? "☁️ Online: sincronizando com sua conta" : "📵 Offline: salvando só no aparelho (faça login para sincronizar)"}
+            {user?.uid
+              ? "☁️ Online: sincronizando com sua conta"
+              : "📵 Offline: salvando só no aparelho (faça login para sincronizar)"}
           </p>
         </div>
 
@@ -1470,10 +1398,6 @@ export default function LembretesPage() {
                 </div>
               </div>
             ) : null}
-
-            <div className="muted small" style={{ marginTop: 12, opacity: 0.75 }}>
-              (Compatibilidade: seus recorrentes antigos continuam funcionando mesmo sem mexer neles.)
-            </div>
           </>
         )}
 
@@ -1568,21 +1492,6 @@ export default function LembretesPage() {
                             <>
                               ⏱ Próximo: <b>{fmtBRDateTimeISO(i.nextDueISO)}</b> • {i.timeHHmm}{" "}
                               {i.enabled === false ? "• (pausado)" : ""}
-                              <div className="muted small" style={{ marginTop: 6 }}>
-                                {i.scheduleType === "semanal" ? (
-                                  <>📌 Dias da semana: {(i.weekdays || []).join(", ") || "-"}</>
-                                ) : i.scheduleType === "mensal" ? (
-                                  <>📌 Dia do mês: {i.diaMes || "-"}</>
-                                ) : i.scheduleType === "aniversario" ? (
-                                  <>🎂 Data base: {i.dataBaseYMD || "-"}</>
-                                ) : i.scheduleType === "personalizado" ? (
-                                  <>📌 Datas: {(i.datasFixas || []).slice(0, 6).join(", ") || "-"}</>
-                                ) : (
-                                  <>
-                                    🔁 Intervalo: a cada <b>{i.every}</b> {i.unit}
-                                  </>
-                                )}
-                              </div>
                             </>
                           )}
                         </div>
@@ -1597,108 +1506,6 @@ export default function LembretesPage() {
                           <label>Título</label>
                           <input value={editingTitulo} onChange={(e) => setEditingTitulo(e.target.value)} />
                         </div>
-
-                        <div className="filters-grid">
-                          <div className="field">
-                            <label>Nível/Duração</label>
-                            <select value={editingNivel} onChange={(e) => setEditingNivel(e.target.value)}>
-                              <option value="rapido">Rápido</option>
-                              <option value="medio">Médio</option>
-                              <option value="demorado">Demorado</option>
-                            </select>
-                          </div>
-                          <div className="field">
-                            <label>Conflito no mesmo dia</label>
-                            <select value={editingConflictMode} onChange={(e) => setEditingConflictMode(e.target.value)}>
-                              <option value="allow">Permitir</option>
-                              <option value="shift">Empurrar</option>
-                              <option value="block">Bloquear</option>
-                            </select>
-                          </div>
-                        </div>
-
-                        {editingTipo === "avulso" ? (
-                          <div className="field">
-                            <label>Quando</label>
-                            <input type="datetime-local" value={editingQuando} onChange={(e) => setEditingQuando(e.target.value)} />
-                          </div>
-                        ) : (
-                          <>
-                            <div className="filters-grid">
-                              <div className="field">
-                                <label>Tipo de recorrência</label>
-                                <select value={editingScheduleType} onChange={(e) => setEditingScheduleType(e.target.value)}>
-                                  <option value="intervalo">Intervalo</option>
-                                  <option value="diario">Diário</option>
-                                  <option value="semanal">Semanal</option>
-                                  <option value="mensal">Mensal</option>
-                                  <option value="aniversario">Aniversário</option>
-                                  <option value="personalizado">Datas fixas</option>
-                                </select>
-                              </div>
-
-                              <div className="field">
-                                <label>Horário</label>
-                                <input type="time" value={editingTime} onChange={(e) => setEditingTime(e.target.value)} />
-                              </div>
-                            </div>
-
-                            {editingScheduleType === "intervalo" ? (
-                              <div className="filters-grid" style={{ marginTop: 10 }}>
-                                <div className="field">
-                                  <label>A cada</label>
-                                  <input value={editingEvery} onChange={(e) => setEditingEvery(e.target.value)} inputMode="numeric" />
-                                </div>
-                                <div className="field">
-                                  <label>Unidade</label>
-                                  <select value={editingUnit} onChange={(e) => setEditingUnit(e.target.value)}>
-                                    <option value="dias">dias</option>
-                                    <option value="semanas">semanas</option>
-                                  </select>
-                                </div>
-                              </div>
-                            ) : null}
-
-                            {editingScheduleType === "semanal" ? (
-                              <div className="field" style={{ marginTop: 10 }}>
-                                <label>Dias da semana</label>
-                                <div className="chips-row" style={{ flexWrap: "wrap" }}>
-                                  {weekdayLabels.map((w) => (
-                                    <button
-                                      key={w.d}
-                                      type="button"
-                                      className={"chip " + (editingWeekdays.includes(w.d) ? "chip-active" : "")}
-                                      onClick={() => setEditingWeekdays((prev) => toggleWeekday(prev, w.d))}
-                                    >
-                                      {w.label}
-                                    </button>
-                                  ))}
-                                </div>
-                              </div>
-                            ) : null}
-
-                            {editingScheduleType === "mensal" ? (
-                              <div className="field" style={{ marginTop: 10 }}>
-                                <label>Dia do mês</label>
-                                <input value={editingDiaMes} onChange={(e) => setEditingDiaMes(e.target.value)} inputMode="numeric" />
-                              </div>
-                            ) : null}
-
-                            {editingScheduleType === "aniversario" ? (
-                              <div className="field" style={{ marginTop: 10 }}>
-                                <label>Data do aniversário</label>
-                                <input type="date" value={editingDataBaseYMD} onChange={(e) => setEditingDataBaseYMD(e.target.value)} />
-                              </div>
-                            ) : null}
-
-                            {editingScheduleType === "personalizado" ? (
-                              <div className="field" style={{ marginTop: 10 }}>
-                                <label>Datas fixas</label>
-                                <input value={editingDatasFixasText} onChange={(e) => setEditingDatasFixasText(e.target.value)} />
-                              </div>
-                            ) : null}
-                          </>
-                        )}
 
                         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 10, flexWrap: "wrap" }}>
                           <button
