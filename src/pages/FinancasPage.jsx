@@ -187,25 +187,23 @@ export default function FinancasPage() {
 
       const totalCat = categorias.essencial + categorias.lazer || 1;
 
-      // ✅ (ADICIONADO) mínimo para pagar contas = gastos fixos + parcelas do cartão (débito/crediário)
-      // Regra simples: soma despesas que são "parcelaNumero" (ou que tenham parcelasTotal>1) e NÃO sejam crédito.
-      // (Não mexe no resto do cálculo do mês.)
-      const totalParcelasMes = transacoes.reduce((soma, t) => {
+      // ✅✅✅ ADICIONADO: Parcelas do mês (se tiver) + mínimo para pagar as contas
+      // Regra: considera "parcela" quando existir parcelasTotal>1 ou parcelaNumero>0
+      // E ignora compras no crédito (porque crédito é controlado na tela de cartões)
+      const totalParcelasMes = transacoes.reduce((acc, t) => {
         const dt = new Date(t.dataHora);
-        if (dt.getMonth() !== mes0 || dt.getFullYear() !== ano) return soma;
-        if (t.tipo !== "despesa") return soma;
+        if (dt.getMonth() !== mes0 || dt.getFullYear() !== ano) return acc;
+        if (t.tipo !== "despesa") return acc;
+        if (t.formaPagamento === "credito") return acc;
 
-        // se for compra no crédito, não entra aqui (já é controlado no Cartões)
-        if (t.formaPagamento === "credito") return soma;
-
-        const parcelasTotal = Number(t.parcelasTotal ?? t.parcelas ?? 0);
-        const parcelaNumero = Number(t.parcelaNumero ?? 0);
+        const parcelasTotal = Number(t?.parcelasTotal ?? t?.parcelas ?? 0);
+        const parcelaNumero = Number(t?.parcelaNumero ?? 0);
 
         const ehParcela = parcelasTotal > 1 || parcelaNumero > 0;
-        if (!ehParcela) return soma;
+        if (!ehParcela) return acc;
 
         const v = Number(t.valor || 0);
-        return soma + (Number.isFinite(v) ? v : 0);
+        return acc + (Number.isFinite(v) ? v : 0);
       }, 0);
 
       const minimoParaPagarContas = totalGastosFixos + totalParcelasMes;
@@ -225,7 +223,7 @@ export default function FinancasPage() {
         totalGastosFixos,
         despesasTransacoes,
 
-        // ✅ (ADICIONADO)
+        // ✅✅✅ ADICIONADO
         totalParcelasMes,
         minimoParaPagarContas,
       };
@@ -377,10 +375,9 @@ export default function FinancasPage() {
         )}
       </div>
 
-      {/* ✅ (ADICIONADO) MÍNIMO PARA PAGAR AS CONTAS */}
+      {/* ✅✅✅ ADICIONADO: MÍNIMO PARA PAGAR AS CONTAS */}
       <div className="card mt">
         <h3>Mínimo para pagar as contas</h3>
-
         <p className="muted small" style={{ marginTop: 6 }}>
           Soma de <strong>gastos fixos</strong> + <strong>parcelas do mês</strong> (se existir).
         </p>
@@ -403,18 +400,6 @@ export default function FinancasPage() {
             </p>
           </div>
         </div>
-
-        {salarioFixo > 0 && (
-          <p className="muted small" style={{ marginTop: 10 }}>
-            Com seu salário fixo:{" "}
-            <strong
-              className={salarioFixo - resumoAtual.minimoParaPagarContas >= 0 ? "positive" : "negative"}
-            >
-              {formatCurrency(salarioFixo - resumoAtual.minimoParaPagarContas)}
-            </strong>{" "}
-            {salarioFixo - resumoAtual.minimoParaPagarContas >= 0 ? "sobram" : "faltam"} após o mínimo.
-          </p>
-        )}
       </div>
 
       {/* RECEITAS / DESPESAS / SALDO / CRÉDITO */}
