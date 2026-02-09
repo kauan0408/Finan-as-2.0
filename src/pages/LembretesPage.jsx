@@ -87,6 +87,13 @@ function addDays(dateObj, days) {
   return d;
 }
 
+// ✅ NOVO: soma minutos (pra "pular" o vencimento atual quando ele ainda está no futuro)
+function addMinutes(dateObj, minutes) {
+  const d = new Date(dateObj);
+  d.setMinutes(d.getMinutes() + Number(minutes || 0));
+  return d;
+}
+
 function startOfDay(dateObj) {
   const d = new Date(dateObj);
   d.setHours(0, 0, 0, 0);
@@ -675,8 +682,15 @@ export default function LembretesPage() {
     // Se não tiver nextDue válido, cai no "agora" como fallback
     const baseDue = Number.isNaN(due.getTime()) ? new Date() : due;
 
-    // Começa a procurar a partir do DIA SEGUINTE ao vencimento (evita repetir o mesmo)
-    const from = addDays(baseDue, 1);
+    // ✅ CORREÇÃO:
+    // - calcula a partir do PRÓPRIO vencimento (âncora)
+    // - se o vencimento ainda está no futuro, "pula" alguns minutos pra não repetir o mesmo vencimento
+    const now = Date.now();
+    let from = baseDue;
+    if (from.getTime() >= now + 60 * 1000) {
+      // ainda não venceu: garante que o próximo seja depois do atual
+      from = addMinutes(from, 1);
+    }
 
     const computed = computeNextDueWithConflict(item, from, fullList, item.id);
     return computed;
