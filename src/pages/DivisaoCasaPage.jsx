@@ -1,12 +1,21 @@
 // ✅ Arquivo: src/pages/DivisaoCasaPage.jsx
-// ✅ Página: Divisão de Gastos da Casa (1 a 5 pessoas) + PDF + assinaturas
+// ✅ Página: Divisão de Gastos da Casa (moradores editáveis + fixos + variáveis por mês + mês vira pelo diaPagamento do Perfil) + PDF
 // ✅ Requer: npm i jspdf jspdf-autotable
+//
+// ✅ IMPORTANTE:
+// - Esta página USA o mesReferencia do seu App.jsx (que já vira pelo diaPagamento do Perfil).
+// - Gastos FIXOS ficam salvos e aparecem todo mês.
+// - Gastos VARIÁVEIS ficam salvos POR MÊS (água/luz/internet variando todo mês).
+// - Nome do morador agora dá pra trocar normalmente.
+// - Nº de moradores não buga: tem botões + / - e o input também funciona.
+// - Se você clicar em "Casa" e cair em outra aba, o problema é no App.jsx (troca do componente/rota). Aqui é só a página.
 
 import React, { useEffect, useMemo, useState } from "react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import { useFinance } from "../App.jsx";
 
-const LS_KEY = "pwa_divisao_casa_v1";
+const LS_KEY = "pwa_divisao_casa_v2";
 
 const SUGESTOES_GASTOS = [
   "Aluguel",
@@ -51,11 +60,15 @@ function clamp(n, a, b) {
   return Math.min(b, Math.max(a, v));
 }
 
-function monthNowYYYYMM() {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  return `${y}-${m}`;
+function pad2(n) {
+  return String(n).padStart(2, "0");
+}
+
+function mesKeyFromRef(mesReferencia) {
+  const now = new Date();
+  const ano = Number(mesReferencia?.ano ?? now.getFullYear());
+  const mes0 = Number(mesReferencia?.mes ?? now.getMonth());
+  return `${ano}-${pad2(mes0 + 1)}`; // YYYY-MM
 }
 
 function monthLabel(yyyy_mm) {
@@ -80,20 +93,94 @@ function normalizeName(s) {
   return String(s || "").trim();
 }
 
-export default function DivisaoCasaPage() {
-  const [state, setState] = useState(() => ({
-    casaNome: "Gastos da Casa",
-    mesRef: monthNowYYYYMM(),
-    modoDivisao: "igual", // "igual" | "percentual"
-    moradoresCount: 2, // 1..5
-    moradores: [
-      { id: uuid(), nome: "Morador 1", percentual: 50 },
-      { id: uuid(), nome: "Morador 2", percentual: 50 },
-    ],
-    itens: [],
+function parseMoneyToNumber(v) {
+  const raw = String(v ?? "").trim();
+  if (!raw) return 0;
+  // aceita "1.234,56" ou "1234,56" ou "1234.56"
+  const cleaned = raw
+    .replace(/\s/g, "")
+    .replace(/\./g, "")
+    .replace(",", ".");
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : NaN;
+}
+
+function ensureMoradores(arr, count) {
+  const c = clamp(count, 1, 5);
+  let out = Array.isArray(arr) ? [...arr] : [];
+
+  out = out.map((m, idx) => ({
+    id: m?.id || uuid(),
+    nome: normalizeName(m?.nome) || `Morador ${idx + 1}`,
+    percentual: Number(m?.percentual ?? 0),
   }));
 
+  if (out.length < c) {
+    for (let i = out.length; i < c; i++) {
+      out.push({
+        id: uuid(),
+        nome: `Morador ${i + 1}`,
+        percentual: 100 / c,
+      });
+    }
+  }
+  if (out.length > c) out = out.slice(0, c);
+
+  return out;
+}
+
+function normalizePercentuais(modoDivisao, moradores) {
+  if (modoDivisao === "igual") {
+    const c = moradores.length || 1;
+    return moradores.map(() => 100 / c);
+  }
+
+  const raw = moradores.map((m) => Number(m?.percentual || 0));
+  const sum = raw.reduce((a, b) => a + b, 0);
+
+  if (sum <= 0) {
+    const c = moradores.length || 1;
+    return moradores.map(() => 100 / c);
+  }
+
+  return raw.map((p) => (p / sum) * 100);
+}
+
+/**
+ * Estrutura:
+ * {
+ *  casaNome,
+ *  modoDivisao,
+ *  moradoresCount,
+ *  moradores: [{id,nome,percentual}],
+ *  fixos: [{id,nome,valor,vencimento,responsavel,observacao}],
+ *  porMes: {
+ *    "YYYY-MM": {
+ *      variaveis: [{id,nome,valor,vencimento,responsavel,observacao}]
+ *    }
+ *  }
+ * }
+ */
+const DEFAULT_STATE = {
+  casaNome: "Gastos da Casa",
+  modoDivisao: "igual", // "igual" | "percentual"
+  moradoresCount: 2,
+  moradores: [
+    { id: uuid(), nome: "Morador 1", percentual: 50 },
+    { id: uuid(), nome: "Morador 2", percentual: 50 },
+  ],
+  fixos: [],
+  porMes: {},
+};
+
+export default function DivisaoCasaPage() {
+  const { profile, mesReferencia } = useFinance() || {};
+  const mesKey = useMemo(() => mesKeyFromRef(mesReferencia), [mesReferencia]);
+
+  const [state, setState] = useState(() => DEFAULT_STATE);
+
   // form item
+  const [tipoGasto, setTipoGasto] = useState("variavel"); // "fixo" | "variavel"
   const [itemNome, setItemNome] = useState("");
   const [itemValor, setItemValor] = useState("");
   const [itemVencimento, setItemVencimento] = useState("");
@@ -102,160 +189,188 @@ export default function DivisaoCasaPage() {
 
   // edição
   const [editId, setEditId] = useState(null);
+  const [editTipo, setEditTipo] = useState("variavel"); // onde está editando
 
   // PDF opts
   const [pdfIncluirObs, setPdfIncluirObs] = useState(true);
   const [pdfIncluirVenc, setPdfIncluirVenc] = useState(true);
+  const [pdfSepararFixos, setPdfSepararFixos] = useState(true);
+
+  // ====== persist helpers (evita bug por "state" antigo) ======
+  function persist(updater) {
+    setState((prev) => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      try {
+        localStorage.setItem(LS_KEY, JSON.stringify(next));
+      } catch (e) {
+        console.error("Erro ao salvar divisão casa:", e);
+      }
+      return next;
+    });
+  }
 
   // load
   useEffect(() => {
     const raw = safeJSONParse(localStorage.getItem(LS_KEY), null);
     if (raw && typeof raw === "object") {
-      setState((prev) => ({
-        ...prev,
+      const merged = {
+        ...DEFAULT_STATE,
         ...raw,
-        moradoresCount: clamp(raw?.moradoresCount ?? prev.moradoresCount, 1, 5),
-        moradores: Array.isArray(raw?.moradores) ? raw.moradores : prev.moradores,
-        itens: Array.isArray(raw?.itens) ? raw.itens : prev.itens,
-      }));
+      };
+
+      merged.moradoresCount = clamp(merged.moradoresCount ?? 2, 1, 5);
+      merged.moradores = ensureMoradores(merged.moradores, merged.moradoresCount);
+      merged.fixos = Array.isArray(merged.fixos) ? merged.fixos : [];
+      merged.porMes = merged.porMes && typeof merged.porMes === "object" ? merged.porMes : {};
+
+      setState(merged);
+    } else {
+      setState(DEFAULT_STATE);
     }
   }, []);
 
-  function persist(next) {
-    setState(next);
-    localStorage.setItem(LS_KEY, JSON.stringify(next));
-  }
+  // garante que o mês atual exista no porMes
+  useEffect(() => {
+    if (!mesKey) return;
+    persist((prev) => {
+      const porMes = prev.porMes && typeof prev.porMes === "object" ? { ...prev.porMes } : {};
+      if (!porMes[mesKey]) porMes[mesKey] = { variaveis: [] };
+      if (!Array.isArray(porMes[mesKey].variaveis)) porMes[mesKey].variaveis = [];
+      return { ...prev, porMes };
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mesKey]);
 
+  // ====== derivados ======
   const moradores = useMemo(() => {
-    const c = clamp(state.moradoresCount, 1, 5);
-
-    let arr = Array.isArray(state.moradores) ? [...state.moradores] : [];
-    arr = arr.map((m, idx) => ({
-      id: m?.id || uuid(),
-      nome: normalizeName(m?.nome) || `Morador ${idx + 1}`,
-      percentual: Number(m?.percentual ?? 0),
-    }));
-
-    if (arr.length < c) {
-      const start = arr.length;
-      for (let i = start; i < c; i++) {
-        arr.push({
-          id: uuid(),
-          nome: `Morador ${i + 1}`,
-          percentual: c > 0 ? 100 / c : 0,
-        });
-      }
-    }
-    if (arr.length > c) arr = arr.slice(0, c);
-
-    return arr;
+    return ensureMoradores(state.moradores, state.moradoresCount);
   }, [state.moradores, state.moradoresCount]);
 
-  const itens = useMemo(() => (Array.isArray(state.itens) ? state.itens : []), [state.itens]);
-
-  const totalGeral = useMemo(() => {
-    return itens.reduce((acc, it) => acc + Number(it?.valor || 0), 0);
-  }, [itens]);
-
   const percentuaisNormalizados = useMemo(() => {
-    if (state.modoDivisao === "igual") {
-      const c = moradores.length || 1;
-      return moradores.map(() => 100 / c);
-    }
-
-    const raw = moradores.map((m) => Number(m?.percentual || 0));
-    const sum = raw.reduce((a, b) => a + b, 0);
-
-    if (sum <= 0) {
-      const c = moradores.length || 1;
-      return moradores.map(() => 100 / c);
-    }
-
-    return raw.map((p) => (p / sum) * 100);
+    return normalizePercentuais(state.modoDivisao, moradores);
   }, [state.modoDivisao, moradores]);
 
   const somaPercentuaisDigitados = useMemo(() => {
     return moradores.reduce((acc, m) => acc + Number(m?.percentual || 0), 0);
   }, [moradores]);
 
+  const fixos = useMemo(() => (Array.isArray(state.fixos) ? state.fixos : []), [state.fixos]);
+
+  const variaveisMes = useMemo(() => {
+    const obj = state.porMes && typeof state.porMes === "object" ? state.porMes : {};
+    const registro = obj[mesKey] || { variaveis: [] };
+    return Array.isArray(registro.variaveis) ? registro.variaveis : [];
+  }, [state.porMes, mesKey]);
+
+  const itensDoMes = useMemo(() => {
+    // FIXOS + VARIÁVEIS DO MÊS (para cálculo e resumo)
+    return [...fixos, ...variaveisMes];
+  }, [fixos, variaveisMes]);
+
+  const totalFixos = useMemo(
+    () => fixos.reduce((acc, it) => acc + Number(it?.valor || 0), 0),
+    [fixos]
+  );
+  const totalVariaveis = useMemo(
+    () => variaveisMes.reduce((acc, it) => acc + Number(it?.valor || 0), 0),
+    [variaveisMes]
+  );
+  const totalGeral = useMemo(() => totalFixos + totalVariaveis, [totalFixos, totalVariaveis]);
+
   const valorPorPessoa = useMemo(() => {
     return moradores.map((_, idx) => (totalGeral * (percentuaisNormalizados[idx] || 0)) / 100);
   }, [moradores, totalGeral, percentuaisNormalizados]);
 
+  // ====== setters principais ======
   function setCasaNome(v) {
-    persist({ ...state, casaNome: String(v || "") });
-  }
-
-  function setMesRef(v) {
-    persist({ ...state, mesRef: String(v || "") });
+    persist((prev) => ({ ...prev, casaNome: String(v || "") }));
   }
 
   function setMoradoresCount(v) {
     const c = clamp(v, 1, 5);
-    let nextMoradores = [...moradores];
+    persist((prev) => {
+      let nextMoradores = ensureMoradores(prev.moradores, c);
 
-    if (nextMoradores.length < c) {
-      for (let i = nextMoradores.length; i < c; i++) {
-        nextMoradores.push({
-          id: uuid(),
-          nome: `Morador ${i + 1}`,
-          percentual: c > 0 ? 100 / c : 0,
-        });
+      // se modo igual, ajusta percentuais automaticamente
+      if (prev.modoDivisao === "igual") {
+        const eq = 100 / c;
+        nextMoradores = nextMoradores.map((m) => ({ ...m, percentual: eq }));
+      } else {
+        // mantém percentuais digitados; se tudo zerado, define igual
+        const sum = nextMoradores.reduce((acc, m) => acc + Number(m?.percentual || 0), 0);
+        if (sum <= 0) {
+          const eq = 100 / c;
+          nextMoradores = nextMoradores.map((m) => ({ ...m, percentual: eq }));
+        }
       }
-    }
-    if (nextMoradores.length > c) nextMoradores = nextMoradores.slice(0, c);
 
-    if (state.modoDivisao === "igual") {
-      const eq = c > 0 ? 100 / c : 0;
-      nextMoradores = nextMoradores.map((m) => ({ ...m, percentual: eq }));
-    }
+      return { ...prev, moradoresCount: c, moradores: nextMoradores };
+    });
+  }
 
-    persist({ ...state, moradoresCount: c, moradores: nextMoradores });
+  function incMoradores(delta) {
+    setMoradoresCount(clamp(Number(state.moradoresCount) + delta, 1, 5));
   }
 
   function setModoDivisao(v) {
     const modo = v === "percentual" ? "percentual" : "igual";
-    const c = moradores.length || 1;
+    persist((prev) => {
+      const c = clamp(prev.moradoresCount ?? 2, 1, 5);
+      let nextMoradores = ensureMoradores(prev.moradores, c);
 
-    let nextMoradores = [...moradores];
-    if (modo === "igual") {
-      const eq = 100 / c;
-      nextMoradores = nextMoradores.map((m) => ({ ...m, percentual: eq }));
-    } else {
-      const sum = nextMoradores.reduce((acc, m) => acc + Number(m.percentual || 0), 0);
-      if (sum <= 0) {
+      if (modo === "igual") {
         const eq = 100 / c;
         nextMoradores = nextMoradores.map((m) => ({ ...m, percentual: eq }));
+      } else {
+        const sum = nextMoradores.reduce((acc, m) => acc + Number(m?.percentual || 0), 0);
+        if (sum <= 0) {
+          const eq = 100 / c;
+          nextMoradores = nextMoradores.map((m) => ({ ...m, percentual: eq }));
+        }
       }
-    }
 
-    persist({ ...state, modoDivisao: modo, moradores: nextMoradores });
+      return { ...prev, modoDivisao: modo, moradores: nextMoradores };
+    });
   }
 
   function setMoradorNome(idx, nome) {
-    const next = [...moradores];
-    next[idx] = { ...next[idx], nome: normalizeName(nome) };
-    persist({ ...state, moradores: next });
+    persist((prev) => {
+      const c = clamp(prev.moradoresCount ?? 2, 1, 5);
+      const arr = ensureMoradores(prev.moradores, c);
+      const next = [...arr];
+      next[idx] = { ...next[idx], nome: normalizeName(nome) || `Morador ${idx + 1}` };
+      return { ...prev, moradores: next };
+    });
   }
 
   function setMoradorPercentual(idx, p) {
-    const next = [...moradores];
-    const val = Number(String(p || "").replace(",", "."));
-    next[idx] = { ...next[idx], percentual: Number.isFinite(val) ? val : 0 };
-    persist({ ...state, moradores: next });
+    persist((prev) => {
+      const c = clamp(prev.moradoresCount ?? 2, 1, 5);
+      const arr = ensureMoradores(prev.moradores, c);
+      const next = [...arr];
+      const val = Number(String(p || "").replace(",", "."));
+      next[idx] = { ...next[idx], percentual: Number.isFinite(val) ? val : 0 };
+      return { ...prev, moradores: next };
+    });
   }
 
+  // ====== itens (fixos/variáveis) ======
   function resetForm() {
+    setTipoGasto("variavel");
     setItemNome("");
     setItemValor("");
     setItemVencimento("");
     setItemResponsavel("");
     setItemObs("");
     setEditId(null);
+    setEditTipo("variavel");
   }
 
-  function startEdit(it) {
+  function startEdit(it, tipo) {
     setEditId(it.id);
+    setEditTipo(tipo);
+    setTipoGasto(tipo);
+
     setItemNome(it.nome || "");
     setItemValor(String(it.valor ?? ""));
     setItemVencimento(it.vencimento || "");
@@ -263,15 +378,26 @@ export default function DivisaoCasaPage() {
     setItemObs(it.observacao || "");
   }
 
-  function removeItem(id) {
-    const nextItens = itens.filter((it) => it.id !== id);
-    persist({ ...state, itens: nextItens });
+  function removeItem(id, tipo) {
+    persist((prev) => {
+      if (tipo === "fixo") {
+        const nextFixos = (Array.isArray(prev.fixos) ? prev.fixos : []).filter((it) => it.id !== id);
+        return { ...prev, fixos: nextFixos };
+      }
+
+      const porMes = prev.porMes && typeof prev.porMes === "object" ? { ...prev.porMes } : {};
+      const reg = porMes[mesKey] || { variaveis: [] };
+      const nextVar = (Array.isArray(reg.variaveis) ? reg.variaveis : []).filter((it) => it.id !== id);
+      porMes[mesKey] = { ...reg, variaveis: nextVar };
+      return { ...prev, porMes };
+    });
+
     if (editId === id) resetForm();
   }
 
   function upsertItem() {
     const nome = String(itemNome || "").trim();
-    const valor = Number(String(itemValor || "").replace(",", "."));
+    const valor = parseMoneyToNumber(itemValor);
     const venc = String(itemVencimento || "").trim();
     const resp = String(itemResponsavel || "").trim();
     const obs = String(itemObs || "").trim();
@@ -281,7 +407,7 @@ export default function DivisaoCasaPage() {
       return;
     }
     if (!Number.isFinite(valor) || valor < 0) {
-      alert("Digite um valor válido (ex.: 120.50).");
+      alert("Digite um valor válido (ex.: 120,50).");
       return;
     }
 
@@ -294,37 +420,88 @@ export default function DivisaoCasaPage() {
       observacao: obs,
     };
 
-    const nextItens = editId
-      ? itens.map((it) => (it.id === editId ? payload : it))
-      : [...itens, payload];
+    const tipo = editId ? editTipo : tipoGasto;
 
-    persist({ ...state, itens: nextItens });
+    persist((prev) => {
+      if (tipo === "fixo") {
+        const list = Array.isArray(prev.fixos) ? prev.fixos : [];
+        const nextFixos = editId ? list.map((it) => (it.id === editId ? payload : it)) : [...list, payload];
+        return { ...prev, fixos: nextFixos };
+      }
+
+      const porMes = prev.porMes && typeof prev.porMes === "object" ? { ...prev.porMes } : {};
+      const reg = porMes[mesKey] || { variaveis: [] };
+      const list = Array.isArray(reg.variaveis) ? reg.variaveis : [];
+      const nextVar = editId ? list.map((it) => (it.id === editId ? payload : it)) : [...list, payload];
+      porMes[mesKey] = { ...reg, variaveis: nextVar };
+      return { ...prev, porMes };
+    });
+
+    resetForm();
+  }
+
+  function copiarVariaveisMesAnterior() {
+    const ok = window.confirm(
+      "Copiar os gastos VARIÁVEIS do mês anterior para este mês?\n(Água, luz, etc. Você pode editar depois.)"
+    );
+    if (!ok) return;
+
+    // calcula mês anterior do mesKey
+    const [yy, mm] = mesKey.split("-").map(Number);
+    const d = new Date(yy, (mm - 1) - 1, 1); // mês anterior (0-index internamente)
+    const prevKey = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
+
+    persist((prev) => {
+      const porMes = prev.porMes && typeof prev.porMes === "object" ? { ...prev.porMes } : {};
+      const prevReg = porMes[prevKey] || { variaveis: [] };
+      const prevVar = Array.isArray(prevReg.variaveis) ? prevReg.variaveis : [];
+
+      const cloned = prevVar.map((it) => ({ ...it, id: uuid() })); // novos ids
+      const reg = porMes[mesKey] || { variaveis: [] };
+      porMes[mesKey] = { ...reg, variaveis: cloned };
+
+      return { ...prev, porMes };
+    });
+  }
+
+  function limparSomenteVariaveisDoMes() {
+    const ok = window.confirm(`Apagar SOMENTE os gastos VARIÁVEIS do mês ${monthLabel(mesKey)}?`);
+    if (!ok) return;
+
+    persist((prev) => {
+      const porMes = prev.porMes && typeof prev.porMes === "object" ? { ...prev.porMes } : {};
+      const reg = porMes[mesKey] || { variaveis: [] };
+      porMes[mesKey] = { ...reg, variaveis: [] };
+      return { ...prev, porMes };
+    });
+
     resetForm();
   }
 
   function limparTudo() {
-    const ok = window.confirm("Tem certeza que deseja apagar todos os dados desta divisão?");
+    const ok = window.confirm("Tem certeza que deseja apagar TODOS os dados (fixos + todos os meses + moradores)?");
     if (!ok) return;
-
-    persist({
-      casaNome: "Gastos da Casa",
-      mesRef: monthNowYYYYMM(),
-      modoDivisao: "igual",
-      moradoresCount: 2,
-      moradores: [
-        { id: uuid(), nome: "Morador 1", percentual: 50 },
-        { id: uuid(), nome: "Morador 2", percentual: 50 },
-      ],
-      itens: [],
-    });
+    try {
+      localStorage.removeItem(LS_KEY);
+    } catch {}
+    setState(DEFAULT_STATE);
     resetForm();
   }
 
+  // ====== PDF ======
   function gerarPDF() {
+    // se der erro por falta de dependência, o build nem passa,
+    // mas isso aqui ajuda no runtime caso o import esteja ok.
+    if (!jsPDF || !autoTable) {
+      alert("PDF indisponível. Instale: npm i jspdf jspdf-autotable");
+      return;
+    }
+
     const doc = new jsPDF({ unit: "pt", format: "a4" });
 
     const titulo = "DIVISÃO DE GASTOS DA CASA";
-    const sub = `${state.casaNome || "Gastos da Casa"} — Mês: ${monthLabel(state.mesRef)}`;
+    const sub1 = `${state.casaNome || "Gastos da Casa"} — Mês: ${monthLabel(mesKey)}`;
+    const sub2 = `Regra do mês: vira pelo diaPagamento do Perfil (${String(profile?.diaPagamento || "não definido")})`;
 
     doc.setFont("helvetica", "bold");
     doc.setFontSize(14);
@@ -332,9 +509,12 @@ export default function DivisaoCasaPage() {
 
     doc.setFont("helvetica", "normal");
     doc.setFontSize(11);
-    doc.text(sub, 40, 70);
+    doc.text(sub1, 40, 70);
+    doc.setFontSize(9);
+    doc.text(sub2, 40, 86);
 
     const cols = [
+      "Tipo",
       "Gasto",
       "Valor",
       ...(pdfIncluirVenc ? ["Venc."] : []),
@@ -342,31 +522,41 @@ export default function DivisaoCasaPage() {
       ...(pdfIncluirObs ? ["Obs."] : []),
     ];
 
-    const body = itens.map((it) => {
-      return [
-        String(it.nome || "-"),
-        formatBRL(it.valor || 0),
-        ...(pdfIncluirVenc ? [it.vencimento ? fmtBRDate(it.vencimento) : "-"] : []),
-        String(it.responsavel || "-"),
-        ...(pdfIncluirObs ? [String(it.observacao || "-")] : []),
+    const linhasFixos = fixos.map((it) => ([
+      "Fixo",
+      String(it.nome || "-"),
+      formatBRL(it.valor || 0),
+      ...(pdfIncluirVenc ? [it.vencimento ? fmtBRDate(it.vencimento) : "-"] : []),
+      String(it.responsavel || "-"),
+      ...(pdfIncluirObs ? [String(it.observacao || "-")] : []),
+    ]));
+
+    const linhasVar = variaveisMes.map((it) => ([
+      "Variável",
+      String(it.nome || "-"),
+      formatBRL(it.valor || 0),
+      ...(pdfIncluirVenc ? [it.vencimento ? fmtBRDate(it.vencimento) : "-"] : []),
+      String(it.responsavel || "-"),
+      ...(pdfIncluirObs ? [String(it.observacao || "-")] : []),
+    ]));
+
+    let body = [];
+    if (pdfSepararFixos) {
+      body = [
+        ...(linhasFixos.length ? linhasFixos : [[ "Fixo", "(Sem fixos cadastrados)", "", ...(pdfIncluirVenc ? [""] : []), "", ...(pdfIncluirObs ? [""] : []) ]]),
+        ...(linhasVar.length ? linhasVar : [[ "Variável", "(Sem variáveis deste mês)", "", ...(pdfIncluirVenc ? [""] : []), "", ...(pdfIncluirObs ? [""] : []) ]]),
       ];
-    });
+    } else {
+      const juntos = [...linhasFixos, ...linhasVar];
+      body = juntos.length
+        ? juntos
+        : [[ "(Sem dados)", "(Sem gastos cadastrados)", "", ...(pdfIncluirVenc ? [""] : []), "", ...(pdfIncluirObs ? [""] : []) ]];
+    }
 
     autoTable(doc, {
-      startY: 90,
+      startY: 100,
       head: [cols],
-      body:
-        body.length > 0
-          ? body
-          : [
-              [
-                "(Sem gastos cadastrados)",
-                "",
-                ...(pdfIncluirVenc ? [""] : []),
-                "",
-                ...(pdfIncluirObs ? [""] : []),
-              ],
-            ],
+      body,
       styles: {
         font: "helvetica",
         fontSize: 9,
@@ -377,7 +567,7 @@ export default function DivisaoCasaPage() {
       margin: { left: 40, right: 40 },
     });
 
-    let y = doc.lastAutoTable ? doc.lastAutoTable.finalY + 20 : 120;
+    let y = doc.lastAutoTable ? doc.lastAutoTable.finalY + 18 : 140;
 
     doc.setFont("helvetica", "bold");
     doc.setFontSize(12);
@@ -386,8 +576,12 @@ export default function DivisaoCasaPage() {
 
     doc.setFont("helvetica", "normal");
     doc.setFontSize(11);
-    doc.text(`Total geral: ${formatBRL(totalGeral)}`, 40, y);
+    doc.text(`Total FIXOS: ${formatBRL(totalFixos)}`, 40, y);
     y += 14;
+    doc.text(`Total VARIÁVEIS (${monthLabel(mesKey)}): ${formatBRL(totalVariaveis)}`, 40, y);
+    y += 14;
+    doc.text(`Total GERAL: ${formatBRL(totalGeral)}`, 40, y);
+    y += 16;
 
     doc.text(`Modo de divisão: ${state.modoDivisao === "percentual" ? "Percentual" : "Igual"}`, 40, y);
     y += 18;
@@ -440,15 +634,36 @@ export default function DivisaoCasaPage() {
       y += 24;
     });
 
-    const fileName = `divisao_gastos_${(state.casaNome || "casa").replace(/\s+/g, "_")}_${state.mesRef}.pdf`;
+    const fileName = `divisao_gastos_${(state.casaNome || "casa").replace(/\s+/g, "_")}_${mesKey}.pdf`;
     doc.save(fileName);
   }
 
+  // ====== UI ======
   return (
     <div className="page">
-      <h2 className="page-title">🏠 Divisão de Gastos da Casa</h2>
+      <h2 className="page-title">🏠 Casa — Divisão de Gastos</h2>
 
       <div className="card">
+        <h3 style={{ marginBottom: 8 }}>Mês atual (automático)</h3>
+
+        <div className="muted small" style={{ marginBottom: 10 }}>
+          Este mês está vindo do seu <b>Perfil</b> (diaPagamento). Quando virar no Perfil, vira aqui também.
+        </div>
+
+        <div className="filters-grid">
+          <div className="field">
+            <label>Mês de referência</label>
+            <input type="text" value={monthLabel(mesKey)} readOnly />
+          </div>
+
+          <div className="field">
+            <label>Dia de pagamento (Perfil)</label>
+            <input type="text" value={String(profile?.diaPagamento || "")} readOnly placeholder="Defina no Perfil" />
+          </div>
+        </div>
+      </div>
+
+      <div className="card mt">
         <h3 style={{ marginBottom: 8 }}>Configuração</h3>
 
         <div className="field">
@@ -462,34 +677,39 @@ export default function DivisaoCasaPage() {
 
         <div className="filters-grid">
           <div className="field">
-            <label>Mês de referência</label>
-            <input type="month" value={state.mesRef} onChange={(e) => setMesRef(e.target.value)} />
+            <label>Nº de pessoas (1 a 5)</label>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <button type="button" className="chip" style={{ width: "auto" }} onClick={() => incMoradores(-1)}>
+                −
+              </button>
+
+              <input
+                type="number"
+                min={1}
+                max={5}
+                value={Number(state.moradoresCount)}
+                onChange={(e) => setMoradoresCount(e.target.value)}
+              />
+
+              <button type="button" className="chip" style={{ width: "auto" }} onClick={() => incMoradores(+1)}>
+                +
+              </button>
+            </div>
           </div>
 
           <div className="field">
-            <label>Nº de pessoas (1 a 5)</label>
-            <input
-              type="number"
-              min={1}
-              max={5}
-              value={state.moradoresCount}
-              onChange={(e) => setMoradoresCount(e.target.value)}
-            />
+            <label>Modo de divisão</label>
+            <select value={state.modoDivisao} onChange={(e) => setModoDivisao(e.target.value)}>
+              <option value="igual">Igual (divide por partes iguais)</option>
+              <option value="percentual">Percentual (cada um paga uma %)</option>
+            </select>
+
+            {state.modoDivisao === "percentual" && (
+              <div className="muted small" style={{ marginTop: 6 }}>
+                Soma digitada (o app normaliza): <b>{somaPercentuaisDigitados.toFixed(2)}%</b>
+              </div>
+            )}
           </div>
-        </div>
-
-        <div className="field">
-          <label>Modo de divisão</label>
-          <select value={state.modoDivisao} onChange={(e) => setModoDivisao(e.target.value)}>
-            <option value="igual">Igual (divide por partes iguais)</option>
-            <option value="percentual">Percentual (cada um paga uma %)</option>
-          </select>
-
-          {state.modoDivisao === "percentual" && (
-            <div className="muted small" style={{ marginTop: 6 }}>
-              Soma digitada (o app normaliza): <b>{somaPercentuaisDigitados.toFixed(2)}%</b>
-            </div>
-          )}
         </div>
       </div>
 
@@ -529,16 +749,29 @@ export default function DivisaoCasaPage() {
       </div>
 
       <div className="card mt">
-        <h3 style={{ marginBottom: 8 }}>{editId ? "Editar gasto" : "Adicionar gasto fixo"}</h3>
+        <h3 style={{ marginBottom: 8 }}>{editId ? "Editar gasto" : "Adicionar gasto (fixo ou variável)"}</h3>
 
-        <div className="field">
-          <label>Gasto</label>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <div className="filters-grid">
+          <div className="field">
+            <label>Tipo</label>
             <select
-              value={itemNome}
-              onChange={(e) => setItemNome(e.target.value)}
-              style={{ flex: 1, minWidth: 240 }}
+              value={tipoGasto}
+              onChange={(e) => setTipoGasto(e.target.value === "fixo" ? "fixo" : "variavel")}
+              disabled={!!editId} // em edição, trava o tipo para não dar confusão
             >
+              <option value="variavel">Variável (muda todo mês: água, luz…)</option>
+              <option value="fixo">Fixo (repete todo mês: aluguel, condomínio…)</option>
+            </select>
+            <div className="muted small" style={{ marginTop: 6 }}>
+              {tipoGasto === "fixo"
+                ? "Fixo aparece em TODOS os meses."
+                : `Variável fica SOMENTE no mês ${monthLabel(mesKey)}.`}
+            </div>
+          </div>
+
+          <div className="field">
+            <label>Gasto</label>
+            <select value={itemNome} onChange={(e) => setItemNome(e.target.value)}>
               <option value="">Selecione uma sugestão…</option>
               {SUGESTOES_GASTOS.map((s) => (
                 <option key={s} value={s}>
@@ -546,14 +779,16 @@ export default function DivisaoCasaPage() {
                 </option>
               ))}
             </select>
-
-            <input
-              value={itemNome}
-              onChange={(e) => setItemNome(e.target.value)}
-              placeholder="Ou digite (ex.: Água)"
-              style={{ flex: 2, minWidth: 240 }}
-            />
           </div>
+        </div>
+
+        <div className="field">
+          <label>Ou digite</label>
+          <input
+            value={itemNome}
+            onChange={(e) => setItemNome(e.target.value)}
+            placeholder="Ex.: Água"
+          />
         </div>
 
         <div className="filters-grid">
@@ -611,13 +846,13 @@ export default function DivisaoCasaPage() {
       </div>
 
       <div className="card mt">
-        <h3 style={{ marginBottom: 8 }}>Gastos cadastrados</h3>
+        <h3 style={{ marginBottom: 8 }}>Gastos FIXOS</h3>
 
-        {itens.length === 0 ? (
-          <p className="muted small">Nenhum gasto cadastrado ainda.</p>
+        {fixos.length === 0 ? (
+          <p className="muted small">Nenhum gasto fixo cadastrado ainda.</p>
         ) : (
           <ul className="list">
-            {itens.map((it) => (
+            {fixos.map((it) => (
               <li key={it.id} className="list-item">
                 <div style={{ flex: 1 }}>
                   <div className="muted">
@@ -642,10 +877,10 @@ export default function DivisaoCasaPage() {
                 </div>
 
                 <div style={{ display: "flex", gap: 8 }}>
-                  <button type="button" className="chip" style={{ width: "auto" }} onClick={() => startEdit(it)}>
+                  <button type="button" className="chip" style={{ width: "auto" }} onClick={() => startEdit(it, "fixo")}>
                     Editar
                   </button>
-                  <button type="button" className="chip" style={{ width: "auto" }} onClick={() => removeItem(it.id)}>
+                  <button type="button" className="chip" style={{ width: "auto" }} onClick={() => removeItem(it.id, "fixo")}>
                     Excluir
                   </button>
                 </div>
@@ -656,13 +891,76 @@ export default function DivisaoCasaPage() {
 
         <div className="mt">
           <div className="muted small">
-            Total geral: <b>{formatBRL(totalGeral)}</b>
+            Total fixos: <b>{formatBRL(totalFixos)}</b>
           </div>
         </div>
       </div>
 
       <div className="card mt">
-        <h3 style={{ marginBottom: 8 }}>Quanto cada um paga</h3>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+          <h3 style={{ marginBottom: 0 }}>Gastos VARIÁVEIS — {monthLabel(mesKey)}</h3>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button type="button" className="chip" style={{ width: "auto" }} onClick={copiarVariaveisMesAnterior}>
+              Copiar mês anterior
+            </button>
+            <button type="button" className="chip" style={{ width: "auto" }} onClick={limparSomenteVariaveisDoMes}>
+              Limpar variáveis do mês
+            </button>
+          </div>
+        </div>
+
+        {variaveisMes.length === 0 ? (
+          <p className="muted small" style={{ marginTop: 10 }}>
+            Nenhum gasto variável cadastrado para este mês ainda (água, luz, etc).
+          </p>
+        ) : (
+          <ul className="list mt">
+            {variaveisMes.map((it) => (
+              <li key={it.id} className="list-item">
+                <div style={{ flex: 1 }}>
+                  <div className="muted">
+                    <b>{it.nome}</b> — {formatBRL(it.valor || 0)}
+                    {it.vencimento ? (
+                      <span className="badge" style={{ marginLeft: 8 }}>
+                        Venc: {fmtBRDate(it.vencimento)}
+                      </span>
+                    ) : null}
+                    {it.responsavel ? (
+                      <span className="badge" style={{ marginLeft: 8 }}>
+                        Resp: {it.responsavel}
+                      </span>
+                    ) : null}
+                  </div>
+
+                  {it.observacao ? (
+                    <div className="muted small" style={{ marginTop: 4 }}>
+                      {it.observacao}
+                    </div>
+                  ) : null}
+                </div>
+
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button type="button" className="chip" style={{ width: "auto" }} onClick={() => startEdit(it, "variavel")}>
+                    Editar
+                  </button>
+                  <button type="button" className="chip" style={{ width: "auto" }} onClick={() => removeItem(it.id, "variavel")}>
+                    Excluir
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <div className="mt">
+          <div className="muted small">
+            Total variáveis ({monthLabel(mesKey)}): <b>{formatBRL(totalVariaveis)}</b>
+          </div>
+        </div>
+      </div>
+
+      <div className="card mt">
+        <h3 style={{ marginBottom: 8 }}>Quanto cada um paga (fixos + variáveis do mês)</h3>
 
         <ul className="list">
           {moradores.map((m, i) => (
@@ -674,6 +972,12 @@ export default function DivisaoCasaPage() {
             </li>
           ))}
         </ul>
+
+        <div className="mt">
+          <div className="muted small">
+            Total geral: <b>{formatBRL(totalGeral)}</b> (Fixos: {formatBRL(totalFixos)} + Variáveis: {formatBRL(totalVariaveis)})
+          </div>
+        </div>
       </div>
 
       <div className="card mt">
@@ -701,6 +1005,16 @@ export default function DivisaoCasaPage() {
               />
               <span className="muted small">Incluir observações</span>
             </label>
+
+            <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <input
+                type="checkbox"
+                checked={pdfSepararFixos}
+                onChange={(e) => setPdfSepararFixos(e.target.checked)}
+                style={{ width: 18, height: 18 }}
+              />
+              <span className="muted small">Mostrar fixos e variáveis separados</span>
+            </label>
           </div>
         </div>
 
@@ -709,7 +1023,7 @@ export default function DivisaoCasaPage() {
         </button>
 
         <div className="muted small" style={{ marginTop: 8 }}>
-          O PDF sai com: tabela de gastos, total, quanto cada um paga e linhas de assinatura.
+          O PDF sai com: tabela de gastos (fixos + variáveis do mês), totais, quanto cada um paga e linhas de assinatura.
         </div>
       </div>
     </div>
