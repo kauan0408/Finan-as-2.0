@@ -18,7 +18,7 @@ import ReservaPage from "./pages/ReservaPage.jsx";
 // ✅ NOVAS PÁGINAS
 import ListaPage from "./pages/ListaPage.jsx";
 import LembretesPage from "./pages/LembretesPage.jsx";
-import DivisaoCasaPage from "./pages/TrabalhoPage.jsx";
+import TrabalhoPage from "./pages/TrabalhoPage.jsx";
 import ReceitasPage from "./pages/ReceitasPage.jsx";
 
 // 🔐 Firebase (login Google + banco de dados)
@@ -304,7 +304,7 @@ export default function App() {
       { key: "lista", label: "🛒 Lista" },
       { key: "lembretes", label: "⏰ Lembretes" },
       { key: "receitas", label: "🍳 Receitas" },
-      { key: "trabalho", label: "💼 Trabalho" },
+      { key: "trabalho", label: "🏠 Casa" },
     ],
     []
   );
