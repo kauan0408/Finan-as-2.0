@@ -1,11 +1,5 @@
 // src/App.jsx
-import React, {
-  createContext,
-  useContext,
-  useState,
-  useEffect,
-  useMemo,
-} from "react";
+import React, { createContext, useContext, useState, useEffect, useMemo } from "react";
 import "./styles/global.css";
 
 import FinancasPage from "./pages/FinancasPage.jsx";
@@ -63,9 +57,7 @@ function saveToStorage(key, value) {
 }
 
 function generateId() {
-  if (typeof crypto !== "undefined" && crypto.randomUUID) {
-    return crypto.randomUUID();
-  }
+  if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
   return Date.now().toString(36) + Math.random().toString(36).slice(2);
 }
 
@@ -78,8 +70,7 @@ function getNthBusinessDayDate(year, monthIndex, n) {
     const isBusinessDay = day !== 0 && day !== 6; // seg-sex
     if (isBusinessDay) {
       count++;
-      if (count === n)
-        return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      if (count === n) return new Date(d.getFullYear(), d.getMonth(), d.getDate());
     }
     d.setDate(d.getDate() + 1);
   }
@@ -218,7 +209,7 @@ const DEFAULT_LISTA = [];
 const DEFAULT_LEMBRETES = [];
 const DEFAULT_RECEITAS = [];
 
-// ✅ DEFAULT DA CASA
+// ✅ DEFAULT DA CASA (LOCAL APENAS)
 const DEFAULT_DIVISAO_CASA = {
   casaNome: "Gastos da Casa",
   modoDivisao: "igual",
@@ -230,6 +221,9 @@ const DEFAULT_DIVISAO_CASA = {
   fixos: [],
   porMes: {},
 };
+
+// ✅ chave local (por aparelho) — NÃO vai pra nuvem
+const CASA_LOCAL_KEY = "divisaoCasa_local_v1";
 
 /* ---------------- COMPONENTE PRINCIPAL ---------------- */
 
@@ -247,7 +241,7 @@ export default function App() {
   const [lembretes, setLembretes] = useState(DEFAULT_LEMBRETES);
   const [receitas, setReceitas] = useState(DEFAULT_RECEITAS);
 
-  // ✅ CASA
+  // ✅ CASA (LOCAL)
   const [divisaoCasa, setDivisaoCasa] = useState(DEFAULT_DIVISAO_CASA);
 
   // ==========================================================
@@ -330,27 +324,62 @@ export default function App() {
     return () => clearInterval(id);
   }, [mesAuto, profile?.diaPagamento, user]);
 
-  // ✅ (NOVO) Retenção 2 meses da Casa baseada no MÊS REAL (não no que você está visualizando)
+  // ==========================================================
+  // ✅ CASA LOCAL: carregar do aparelho 1x
+  // ==========================================================
+  useEffect(() => {
+    // carrega SEM depender de login (é local do aparelho)
+    const localRaw = loadFromStorage(CASA_LOCAL_KEY, null);
+    const mesRealRef = calcMesRefByPayday(profile?.diaPagamento);
+    const realKey = monthKeyFromRef(mesRealRef);
+
+    if (localRaw && typeof localRaw === "object") {
+      setDivisaoCasa((prev) => ({
+        ...DEFAULT_DIVISAO_CASA,
+        ...localRaw,
+        porMes: keepOnlyTwoMonths(localRaw?.porMes, realKey),
+      }));
+    } else {
+      setDivisaoCasa((prev) => ({
+        ...DEFAULT_DIVISAO_CASA,
+        ...prev,
+        porMes: keepOnlyTwoMonths(prev?.porMes, realKey),
+      }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ✅ CASA LOCAL: sempre que mudar, salva no aparelho
   useEffect(() => {
     const mesRealRef = calcMesRefByPayday(profile?.diaPagamento);
     const realKey = monthKeyFromRef(mesRealRef);
 
-    setDivisaoCasa((prev) => {
-      const p = prev && typeof prev === "object" ? prev : DEFAULT_DIVISAO_CASA;
-      const porMes = p.porMes && typeof p.porMes === "object" ? p.porMes : {};
-      const cleaned = keepOnlyTwoMonths(porMes, realKey);
+    const clean = {
+      ...DEFAULT_DIVISAO_CASA,
+      ...(divisaoCasa || {}),
+      porMes: keepOnlyTwoMonths(divisaoCasa?.porMes, realKey),
+    };
 
-      // evita render à toa se não mudou
-      const prevKeys = Object.keys(porMes);
+    // salva no storage LOCAL do aparelho
+    saveToStorage(CASA_LOCAL_KEY, clean);
+
+    // garante que o state também fique "limpo" (2 meses)
+    setDivisaoCasa((prev) => {
+      const prevObj = prev && typeof prev === "object" ? prev : DEFAULT_DIVISAO_CASA;
+      const prevPorMes = prevObj.porMes && typeof prevObj.porMes === "object" ? prevObj.porMes : {};
+      const cleaned = keepOnlyTwoMonths(prevPorMes, realKey);
+
+      const prevKeys = Object.keys(prevPorMes);
       const nextKeys = Object.keys(cleaned);
       const same =
         prevKeys.length === nextKeys.length &&
-        nextKeys.every((k) => porMes[k] === cleaned[k]);
+        nextKeys.every((k) => prevPorMes[k] === cleaned[k]);
 
-      if (same) return p;
-      return { ...p, porMes: cleaned };
+      if (same) return prevObj;
+      return { ...prevObj, porMes: cleaned };
     });
-  }, [profile?.diaPagamento]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [divisaoCasa, profile?.diaPagamento]);
 
   // ✅ Aba atual geral
   const [abaAtiva, setAbaAtiva] = useState("financas");
@@ -392,7 +421,7 @@ export default function App() {
     return () => unsub();
   }, []);
 
-  /* ------- 1) CARREGAR DADOS ------- */
+  /* ------- 1) CARREGAR DADOS (NUVEM) ------- */
 
   useEffect(() => {
     if (!user) return;
@@ -418,17 +447,6 @@ export default function App() {
           const lembretesCloud = data.lembretes || DEFAULT_LEMBRETES;
           const receitasCloud = data.receitas || DEFAULT_RECEITAS;
 
-          // ✅ Casa (com retenção aplicada na hora de carregar)
-          const mesRealRef = calcMesRefByPayday(perfilCloud?.diaPagamento);
-          const realKey = monthKeyFromRef(mesRealRef);
-
-          const casaCloudRaw = data.divisaoCasa || DEFAULT_DIVISAO_CASA;
-          const casaCloud = {
-            ...DEFAULT_DIVISAO_CASA,
-            ...casaCloudRaw,
-            porMes: keepOnlyTwoMonths(casaCloudRaw?.porMes, realKey),
-          };
-
           setProfile(perfilCloud);
           setTransacoes(transacoesCloud);
           setCartoes(cartoesCloud);
@@ -438,8 +456,6 @@ export default function App() {
           setLembretes(lembretesCloud);
           setReceitas(receitasCloud);
 
-          setDivisaoCasa(casaCloud);
-
           saveToStorage(`profile_${uid}`, perfilCloud);
           saveToStorage(`transacoes_${uid}`, transacoesCloud);
           saveToStorage(`cartoes_${uid}`, cartoesCloud);
@@ -448,8 +464,7 @@ export default function App() {
           saveToStorage(`lista_${uid}`, listaCloud);
           saveToStorage(`lembretes_${uid}`, lembretesCloud);
           saveToStorage(`receitas_${uid}`, receitasCloud);
-
-          saveToStorage(`divisaoCasa_${uid}`, casaCloud);
+          // ✅ NÃO salva divisaoCasa no uid (é local do aparelho)
         } else {
           const storedProfile = loadFromStorage(`profile_${uid}`, null);
           const storedTransacoes = loadFromStorage(`transacoes_${uid}`, null);
@@ -460,8 +475,6 @@ export default function App() {
           const storedLembretes = loadFromStorage(`lembretes_${uid}`, null);
           const storedReceitas = loadFromStorage(`receitas_${uid}`, null);
 
-          const storedDivisaoCasa = loadFromStorage(`divisaoCasa_${uid}`, null);
-
           const perfilInicial = storedProfile || DEFAULT_PROFILE;
           const transacoesIniciais = storedTransacoes || [];
           const cartoesIniciais = storedCartoes || [];
@@ -470,16 +483,6 @@ export default function App() {
           const listaInicial = storedLista || DEFAULT_LISTA;
           const lembretesIniciais = storedLembretes || DEFAULT_LEMBRETES;
           const receitasIniciais = storedReceitas || DEFAULT_RECEITAS;
-
-          const mesRealRef = calcMesRefByPayday(perfilInicial?.diaPagamento);
-          const realKey = monthKeyFromRef(mesRealRef);
-
-          const casaInicialRaw = storedDivisaoCasa || DEFAULT_DIVISAO_CASA;
-          const casaInicial = {
-            ...DEFAULT_DIVISAO_CASA,
-            ...casaInicialRaw,
-            porMes: keepOnlyTwoMonths(casaInicialRaw?.porMes, realKey),
-          };
 
           setProfile(perfilInicial);
           setTransacoes(transacoesIniciais);
@@ -490,8 +493,6 @@ export default function App() {
           setLembretes(lembretesIniciais);
           setReceitas(receitasIniciais);
 
-          setDivisaoCasa(casaInicial);
-
           await setDoc(
             userDocRef,
             {
@@ -499,12 +500,10 @@ export default function App() {
               transacoes: transacoesIniciais,
               cartoes: cartoesIniciais,
               reserva: reservaInicial,
-
               lista: listaInicial,
               lembretes: lembretesIniciais,
               receitas: receitasIniciais,
-
-              divisaoCasa: casaInicial,
+              // ✅ NÃO envia divisaoCasa (local)
             },
             { merge: true }
           );
@@ -556,15 +555,7 @@ export default function App() {
           if (data.lembretes) setLembretes(data.lembretes);
           if (data.receitas) setReceitas(data.receitas);
 
-          if (data.divisaoCasa) {
-            const mesRealRef = calcMesRefByPayday((data.profile || profile)?.diaPagamento);
-            const realKey = monthKeyFromRef(mesRealRef);
-            setDivisaoCasa((prev) => ({
-              ...DEFAULT_DIVISAO_CASA,
-              ...(data.divisaoCasa || prev),
-              porMes: keepOnlyTwoMonths(data.divisaoCasa?.porMes, realKey),
-            }));
-          }
+          // ✅ NÃO sincroniza divisaoCasa (local)
         });
       } catch (err) {
         console.error("Erro ao carregar dados iniciais do Firestore:", err);
@@ -579,11 +570,6 @@ export default function App() {
         const storedLembretes = loadFromStorage(`lembretes_${uid}`, DEFAULT_LEMBRETES);
         const storedReceitas = loadFromStorage(`receitas_${uid}`, DEFAULT_RECEITAS);
 
-        const storedDivisaoCasa = loadFromStorage(`divisaoCasa_${uid}`, DEFAULT_DIVISAO_CASA);
-
-        const mesRealRef = calcMesRefByPayday(storedProfile?.diaPagamento);
-        const realKey = monthKeyFromRef(mesRealRef);
-
         setProfile(storedProfile);
         setTransacoes(storedTransacoes);
         setCartoes(storedCartoes);
@@ -592,12 +578,6 @@ export default function App() {
         setLista(storedLista);
         setLembretes(storedLembretes);
         setReceitas(storedReceitas);
-
-        setDivisaoCasa({
-          ...DEFAULT_DIVISAO_CASA,
-          ...storedDivisaoCasa,
-          porMes: keepOnlyTwoMonths(storedDivisaoCasa?.porMes, realKey),
-        });
 
         const storedMesAuto = loadFromStorage(`mesAuto_${uid}`, true);
         const storedMesRef = loadFromStorage(`mesRef_${uid}`, null);
@@ -628,7 +608,7 @@ export default function App() {
     };
   }, [user]);
 
-  /* ------- 2) SALVAR NA NUVEM ------- */
+  /* ------- 2) SALVAR NA NUVEM (SEM CASA) ------- */
 
   useEffect(() => {
     if (!user || !dadosCarregados) return;
@@ -636,27 +616,15 @@ export default function App() {
     const uid = user.uid;
     const userDocRef = doc(db, "users", uid);
 
-    // ✅ aplica retenção antes de salvar
-    const mesRealRef = calcMesRefByPayday(profile?.diaPagamento);
-    const realKey = monthKeyFromRef(mesRealRef);
-
-    const divisaoCasaClean = {
-      ...DEFAULT_DIVISAO_CASA,
-      ...(divisaoCasa || {}),
-      porMes: keepOnlyTwoMonths(divisaoCasa?.porMes, realKey),
-    };
-
     const payload = {
       profile,
       transacoes,
       cartoes,
       reserva,
-
       lista,
       lembretes,
       receitas,
-
-      divisaoCasa: divisaoCasaClean,
+      // ✅ NÃO envia divisaoCasa (local)
     };
 
     saveToStorage(`profile_${uid}`, profile);
@@ -667,8 +635,6 @@ export default function App() {
     saveToStorage(`lista_${uid}`, lista);
     saveToStorage(`lembretes_${uid}`, lembretes);
     saveToStorage(`receitas_${uid}`, receitas);
-
-    saveToStorage(`divisaoCasa_${uid}`, divisaoCasaClean);
 
     if (!navigator.onLine) {
       saveToStorage(`pendingSync_${uid}`, payload);
@@ -683,18 +649,7 @@ export default function App() {
         console.error("Erro ao salvar dados no Firestore:", err);
         saveToStorage(`pendingSync_${uid}`, payload);
       });
-  }, [
-    user,
-    dadosCarregados,
-    profile,
-    transacoes,
-    cartoes,
-    reserva,
-    lista,
-    lembretes,
-    receitas,
-    divisaoCasa,
-  ]);
+  }, [user, dadosCarregados, profile, transacoes, cartoes, reserva, lista, lembretes, receitas]);
 
   /* ------- 3) SINCRONIZAR PENDÊNCIAS ------- */
 
@@ -718,11 +673,8 @@ export default function App() {
     };
 
     syncPendentes();
-
     window.addEventListener("online", syncPendentes);
-    return () => {
-      window.removeEventListener("online", syncPendentes);
-    };
+    return () => window.removeEventListener("online", syncPendentes);
   }, [user, dadosCarregados]);
 
   /* ------- FUNÇÕES PARA O CONTEXTO ------- */
@@ -741,9 +693,7 @@ export default function App() {
   };
 
   const atualizarTransacao = (id, dadosAtualizados) => {
-    setTransacoes((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, ...dadosAtualizados } : t))
-    );
+    setTransacoes((prev) => prev.map((t) => (t.id === id ? { ...t, ...dadosAtualizados } : t)));
   };
 
   const removerTransacao = (id) => {
@@ -791,9 +741,11 @@ export default function App() {
       receitas,
       setReceitas,
 
+      // ✅ CASA LOCAL (não sincroniza)
       divisaoCasa,
       setDivisaoCasa,
 
+      // ✅ mês global
       mesReferencia,
       mudarMesReferencia,
       irParaMesAtual,
@@ -804,19 +756,7 @@ export default function App() {
       loginComGoogle,
       logout,
     }),
-    [
-      user,
-      profile,
-      transacoes,
-      cartoes,
-      reserva,
-      lista,
-      lembretes,
-      receitas,
-      divisaoCasa,
-      mesReferencia,
-      mesAuto,
-    ]
+    [user, profile, transacoes, cartoes, reserva, lista, lembretes, receitas, divisaoCasa, mesReferencia, mesAuto]
   );
 
   /* ------- ESCOLHE PÁGINA ------- */
@@ -835,7 +775,6 @@ export default function App() {
     case "receitas":
       pagina = <ReceitasPage />;
       break;
-
     case "casa":
       pagina = <DivisaoCasaPage />;
       break;
@@ -891,10 +830,7 @@ export default function App() {
           <main className="app-main">
             <div className="card profile-card">
               <h2 className="page-title">Entrar</h2>
-              <p className="muted small">
-                Faça login com sua conta Google para usar o app e salvar seus
-                dados com segurança.
-              </p>
+              <p className="muted small">Faça login com sua conta Google para usar o app e salvar seus dados com segurança.</p>
 
               <button
                 className="primary-btn"
@@ -938,14 +874,7 @@ export default function App() {
 
         <div className="app-overlay">
           <header className="app-header">
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 10,
-              }}
-            >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
               <h1 className="app-title">Finanças Offline</h1>
 
               <button
@@ -966,60 +895,42 @@ export default function App() {
           {mostrarMenuInferior && (
             <nav className="bottom-nav">
               <button
-                className={
-                  "bottom-nav-item " +
-                  (abaAtiva === "financas" ? "bottom-nav-item-active" : "")
-                }
+                className={"bottom-nav-item " + (abaAtiva === "financas" ? "bottom-nav-item-active" : "")}
                 onClick={() => setAbaAtiva("financas")}
               >
                 💰 Finanças
               </button>
 
               <button
-                className={
-                  "bottom-nav-item " +
-                  (abaAtiva === "reserva" ? "bottom-nav-item-active" : "")
-                }
+                className={"bottom-nav-item " + (abaAtiva === "reserva" ? "bottom-nav-item-active" : "")}
                 onClick={() => setAbaAtiva("reserva")}
               >
                 🛟 Reserva
               </button>
 
               <button
-                className={
-                  "bottom-nav-item " +
-                  (abaAtiva === "transacoes" ? "bottom-nav-item-active" : "")
-                }
+                className={"bottom-nav-item " + (abaAtiva === "transacoes" ? "bottom-nav-item-active" : "")}
                 onClick={() => setAbaAtiva("transacoes")}
               >
                 📥 Transações
               </button>
 
               <button
-                className={
-                  "bottom-nav-item " +
-                  (abaAtiva === "cartoes" ? "bottom-nav-item-active" : "")
-                }
+                className={"bottom-nav-item " + (abaAtiva === "cartoes" ? "bottom-nav-item-active" : "")}
                 onClick={() => setAbaAtiva("cartoes")}
               >
                 💳 Cartões
               </button>
 
               <button
-                className={
-                  "bottom-nav-item " +
-                  (abaAtiva === "historico" ? "bottom-nav-item-active" : "")
-                }
+                className={"bottom-nav-item " + (abaAtiva === "historico" ? "bottom-nav-item-active" : "")}
                 onClick={() => setAbaAtiva("historico")}
               >
                 📜 Histórico
               </button>
 
               <button
-                className={
-                  "bottom-nav-item " +
-                  (abaAtiva === "perfil" ? "bottom-nav-item-active" : "")
-                }
+                className={"bottom-nav-item " + (abaAtiva === "perfil" ? "bottom-nav-item-active" : "")}
                 onClick={() => setAbaAtiva("perfil")}
               >
                 👤 Perfil
@@ -1028,10 +939,7 @@ export default function App() {
           )}
 
           {menuMaisAberto && (
-            <div
-              className="modal-overlay"
-              onClick={() => setMenuMaisAberto(false)}
-            >
+            <div className="modal-overlay" onClick={() => setMenuMaisAberto(false)}>
               <div className="modal-card" onClick={(e) => e.stopPropagation()}>
                 <h3>Atalhos</h3>
 
@@ -1049,19 +957,8 @@ export default function App() {
                   ))}
                 </div>
 
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "flex-end",
-                    marginTop: 12,
-                  }}
-                >
-                  <button
-                    type="button"
-                    className="toggle-btn"
-                    onClick={() => setMenuMaisAberto(false)}
-                    style={{ width: "auto" }}
-                  >
+                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
+                  <button type="button" className="toggle-btn" onClick={() => setMenuMaisAberto(false)} style={{ width: "auto" }}>
                     Fechar
                   </button>
                 </div>
