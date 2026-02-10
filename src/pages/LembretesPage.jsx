@@ -87,7 +87,7 @@ function addDays(dateObj, days) {
   return d;
 }
 
-// ✅ NOVO: soma minutos (pra "pular" o vencimento atual quando ele ainda está no futuro)
+// (mantido — pode ser útil no futuro)
 function addMinutes(dateObj, minutes) {
   const d = new Date(dateObj);
   d.setMinutes(d.getMinutes() + Number(minutes || 0));
@@ -673,23 +673,27 @@ export default function LembretesPage() {
   }
 
   /**
-   * ✅ CÁLCULO CORRETO DO PRÓXIMO APÓS CONCLUIR
-   * - O próximo deve ser calculado a partir do vencimento atual (nextDueISO),
-   *   e não "a partir de amanhã" ou "a partir de hoje".
+   * ✅ CÁLCULO CORRETO DO PRÓXIMO APÓS CONCLUIR (FIX FINAL)
+   * - Ao clicar "Pago/Feito", SEMPRE AVANÇA a recorrência.
+   * - Intervalo: soma exatamente o intervalo (3 dias, 14 dias...) a partir do vencimento atual.
+   * - Outros tipos: procura a partir do dia seguinte para não repetir o mesmo dia.
    */
   function computeNextFromCurrentDue(item, fullList) {
     const due = new Date(item?.nextDueISO || "");
-    // Se não tiver nextDue válido, cai no "agora" como fallback
     const baseDue = Number.isNaN(due.getTime()) ? new Date() : due;
 
-    // ✅ CORREÇÃO:
-    // - calcula a partir do PRÓPRIO vencimento (âncora)
-    // - se o vencimento ainda está no futuro, "pula" alguns minutos pra não repetir o mesmo vencimento
-    const now = Date.now();
-    let from = baseDue;
-    if (from.getTime() >= now + 60 * 1000) {
-      // ainda não venceu: garante que o próximo seja depois do atual
-      from = addMinutes(from, 1);
+    const st = item?.scheduleType || "intervalo";
+    const timeHHmm = item?.timeHHmm || "09:00";
+
+    let from;
+
+    if (st === "intervalo") {
+      const intervalDays = unitToDays(item?.unit || "dias", item?.every || 1);
+      const anchorDay = startOfDay(baseDue);
+      const nextBase = addDays(anchorDay, intervalDays);
+      from = makeDateAtTime(nextBase, timeHHmm);
+    } else {
+      from = addDays(startOfDay(baseDue), 1);
     }
 
     const computed = computeNextDueWithConflict(item, from, fullList, item.id);
@@ -923,7 +927,7 @@ export default function LembretesPage() {
       if (i.id !== id) return i;
       if (i.tipo !== "recorrente") return i;
 
-      // ✅ gira a partir do vencimento atual (não "amanhã a partir de hoje")
+      // ✅ gira a partir do vencimento atual (agora soma dias/semanas corretamente)
       const computed = computeNextFromCurrentDue(i, list);
 
       if (computed && computed.__conflict) {
