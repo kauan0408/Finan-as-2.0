@@ -18,8 +18,12 @@ import ReservaPage from "./pages/ReservaPage.jsx";
 // ✅ NOVAS PÁGINAS
 import ListaPage from "./pages/ListaPage.jsx";
 import LembretesPage from "./pages/LembretesPage.jsx";
-import DivisaoCasaPage from "./pages/DivisaoCasaPage.jsx"; // ✅ (TROCA) antes era TrabalhoPage
+// ❌ remove TrabalhoPage
+// import TrabalhoPage from "./pages/TrabalhoPage.jsx";
 import ReceitasPage from "./pages/ReceitasPage.jsx";
+
+// ✅ CASA (nova página)
+import DivisaoCasaPage from "./pages/DivisaoCasaPage.jsx";
 
 // 🔐 Firebase (login Google + banco de dados)
 import { auth, loginComGoogle, logout, db } from "./firebase";
@@ -91,22 +95,19 @@ function parseDiaPagamentoToRule(diaPagamentoRaw) {
   if (s.includes("dia util") || s.includes("dia útil")) {
     const m = s.match(/(\d+)/);
     const n = m ? Number(m[1]) : NaN;
-    if (Number.isFinite(n) && n >= 1 && n <= 31)
-      return { kind: "businessDay", n };
+    if (Number.isFinite(n) && n >= 1 && n <= 31) return { kind: "businessDay", n };
   }
 
   // ✅ (NOVO) Se você digitar só "5" ou "9" ou "10", entende como DIA ÚTIL
   if (/^\d{1,2}$/.test(s)) {
     const n = Number(s);
-    if (Number.isFinite(n) && n >= 1 && n <= 31)
-      return { kind: "businessDay", n };
+    if (Number.isFinite(n) && n >= 1 && n <= 31) return { kind: "businessDay", n };
   }
 
   // Ex.: "dia 10" (aqui continua sendo DIA DO MÊS, caso você queira fixo)
   const m2 = s.match(/\bdia\s+(\d{1,2})\b/);
   const day = m2 ? Number(m2[1]) : NaN;
-  if (Number.isFinite(day) && day >= 1 && day <= 31)
-    return { kind: "dayOfMonth", day };
+  if (Number.isFinite(day) && day >= 1 && day <= 31) return { kind: "dayOfMonth", day };
 
   return null;
 }
@@ -183,7 +184,7 @@ const DEFAULT_RESERVA = {
   movimentos: [],
 };
 
-// ✅ (NOVO) defaults das páginas que não estavam online
+// ✅ defaults das páginas
 const DEFAULT_LISTA = [];
 const DEFAULT_LEMBRETES = [];
 const DEFAULT_RECEITAS = [];
@@ -210,7 +211,7 @@ export default function App() {
   // Reserva
   const [reserva, setReserva] = useState(DEFAULT_RESERVA);
 
-  // ✅ (NOVO) estados online para Lista/Lembretes/Receitas
+  // ✅ estados online para Lista/Lembretes/Receitas
   const [lista, setLista] = useState(DEFAULT_LISTA);
   const [lembretes, setLembretes] = useState(DEFAULT_LEMBRETES);
   const [receitas, setReceitas] = useState(DEFAULT_RECEITAS);
@@ -307,7 +308,8 @@ export default function App() {
       { key: "lista", label: "🛒 Lista" },
       { key: "lembretes", label: "⏰ Lembretes" },
       { key: "receitas", label: "🍳 Receitas" },
-      { key: "trabalho", label: "🏠 Casa" }, // ✅ label já estava certo
+      // ✅ TROCA: antes era "trabalho" -> agora é "casa"
+      { key: "casa", label: "🏠 Casa" },
     ],
     []
   );
@@ -357,7 +359,7 @@ export default function App() {
           const cartoesCloud = data.cartoes || [];
           const reservaCloud = data.reserva || DEFAULT_RESERVA;
 
-          // ✅ (NOVO) cloud
+          // ✅ cloud
           const listaCloud = data.lista || DEFAULT_LISTA;
           const lembretesCloud = data.lembretes || DEFAULT_LEMBRETES;
           const receitasCloud = data.receitas || DEFAULT_RECEITAS;
@@ -367,7 +369,6 @@ export default function App() {
           setCartoes(cartoesCloud);
           setReserva(reservaCloud);
 
-          // ✅ (NOVO)
           setLista(listaCloud);
           setLembretes(lembretesCloud);
           setReceitas(receitasCloud);
@@ -377,7 +378,6 @@ export default function App() {
           saveToStorage(`cartoes_${uid}`, cartoesCloud);
           saveToStorage(`reserva_${uid}`, reservaCloud);
 
-          // ✅ (NOVO)
           saveToStorage(`lista_${uid}`, listaCloud);
           saveToStorage(`lembretes_${uid}`, lembretesCloud);
           saveToStorage(`receitas_${uid}`, receitasCloud);
@@ -387,7 +387,6 @@ export default function App() {
           const storedCartoes = loadFromStorage(`cartoes_${uid}`, null);
           const storedReserva = loadFromStorage(`reserva_${uid}`, null);
 
-          // ✅ (NOVO)
           const storedLista = loadFromStorage(`lista_${uid}`, null);
           const storedLembretes = loadFromStorage(`lembretes_${uid}`, null);
           const storedReceitas = loadFromStorage(`receitas_${uid}`, null);
@@ -397,7 +396,6 @@ export default function App() {
           const cartoesIniciais = storedCartoes || [];
           const reservaInicial = storedReserva || DEFAULT_RESERVA;
 
-          // ✅ (NOVO)
           const listaInicial = storedLista || DEFAULT_LISTA;
           const lembretesIniciais = storedLembretes || DEFAULT_LEMBRETES;
           const receitasIniciais = storedReceitas || DEFAULT_RECEITAS;
@@ -407,7 +405,6 @@ export default function App() {
           setCartoes(cartoesIniciais);
           setReserva(reservaInicial);
 
-          // ✅ (NOVO)
           setLista(listaInicial);
           setLembretes(lembretesIniciais);
           setReceitas(receitasIniciais);
@@ -420,7 +417,6 @@ export default function App() {
               cartoes: cartoesIniciais,
               reserva: reservaInicial,
 
-              // ✅ (NOVO)
               lista: listaInicial,
               lembretes: lembretesIniciais,
               receitas: receitasIniciais,
@@ -471,7 +467,6 @@ export default function App() {
           if (data.cartoes) setCartoes(data.cartoes);
           if (data.reserva) setReserva(data.reserva);
 
-          // ✅ (NOVO)
           if (data.lista) setLista(data.lista);
           if (data.lembretes) setLembretes(data.lembretes);
           if (data.receitas) setReceitas(data.receitas);
@@ -485,7 +480,6 @@ export default function App() {
         const storedCartoes = loadFromStorage(`cartoes_${uid}`, []);
         const storedReserva = loadFromStorage(`reserva_${uid}`, DEFAULT_RESERVA);
 
-        // ✅ (NOVO)
         const storedLista = loadFromStorage(`lista_${uid}`, DEFAULT_LISTA);
         const storedLembretes = loadFromStorage(`lembretes_${uid}`, DEFAULT_LEMBRETES);
         const storedReceitas = loadFromStorage(`receitas_${uid}`, DEFAULT_RECEITAS);
@@ -495,7 +489,6 @@ export default function App() {
         setCartoes(storedCartoes);
         setReserva(storedReserva);
 
-        // ✅ (NOVO)
         setLista(storedLista);
         setLembretes(storedLembretes);
         setReceitas(storedReceitas);
@@ -537,13 +530,11 @@ export default function App() {
     const uid = user.uid;
     const userDocRef = doc(db, "users", uid);
 
-    // ✅ (NOVO) inclui lista/lembretes/receitas no payload
     const payload = {
       profile,
       transacoes,
       cartoes,
       reserva,
-
       lista,
       lembretes,
       receitas,
@@ -554,7 +545,6 @@ export default function App() {
     saveToStorage(`cartoes_${uid}`, cartoes);
     saveToStorage(`reserva_${uid}`, reserva);
 
-    // ✅ (NOVO)
     saveToStorage(`lista_${uid}`, lista);
     saveToStorage(`lembretes_${uid}`, lembretes);
     saveToStorage(`receitas_${uid}`, receitas);
@@ -572,19 +562,7 @@ export default function App() {
         console.error("Erro ao salvar dados no Firestore:", err);
         saveToStorage(`pendingSync_${uid}`, payload);
       });
-  }, [
-    user,
-    dadosCarregados,
-    profile,
-    transacoes,
-    cartoes,
-    reserva,
-
-    // ✅ (NOVO)
-    lista,
-    lembretes,
-    receitas,
-  ]);
+  }, [user, dadosCarregados, profile, transacoes, cartoes, reserva, lista, lembretes, receitas]);
 
   /* ------- 3) SINCRONIZAR PENDÊNCIAS ------- */
 
@@ -674,7 +652,6 @@ export default function App() {
       reserva,
       setReserva: atualizarReserva,
 
-      // ✅ (NOVO) expõe para as páginas
       lista,
       setLista,
       lembretes,
@@ -682,7 +659,6 @@ export default function App() {
       receitas,
       setReceitas,
 
-      // ✅ mês global
       mesReferencia,
       mudarMesReferencia,
       irParaMesAtual,
@@ -693,21 +669,7 @@ export default function App() {
       loginComGoogle,
       logout,
     }),
-    [
-      user,
-      profile,
-      transacoes,
-      cartoes,
-      reserva,
-
-      // ✅ (NOVO)
-      lista,
-      lembretes,
-      receitas,
-
-      mesReferencia,
-      mesAuto,
-    ]
+    [user, profile, transacoes, cartoes, reserva, lista, lembretes, receitas, mesReferencia, mesAuto]
   );
 
   /* ------- ESCOLHE PÁGINA ------- */
@@ -727,9 +689,8 @@ export default function App() {
       pagina = <ReceitasPage />;
       break;
 
-    // ✅ (TROCA) a aba "trabalho" agora abre a página da CASA
-    // ✅ Mantive a key "trabalho" para não quebrar seu menu/atalhos existentes.
-    case "trabalho":
+    // ✅ TROCA: agora "casa" abre DivisaoCasaPage
+    case "casa":
       pagina = <DivisaoCasaPage />;
       break;
 
@@ -786,8 +747,7 @@ export default function App() {
             <div className="card profile-card">
               <h2 className="page-title">Entrar</h2>
               <p className="muted small">
-                Faça login com sua conta Google para usar o app e salvar seus
-                dados com segurança.
+                Faça login com sua conta Google para usar o app e salvar seus dados com segurança.
               </p>
 
               <button
@@ -922,10 +882,7 @@ export default function App() {
           )}
 
           {menuMaisAberto && (
-            <div
-              className="modal-overlay"
-              onClick={() => setMenuMaisAberto(false)}
-            >
+            <div className="modal-overlay" onClick={() => setMenuMaisAberto(false)}>
               <div className="modal-card" onClick={(e) => e.stopPropagation()}>
                 <h3>Atalhos</h3>
 
@@ -943,13 +900,7 @@ export default function App() {
                   ))}
                 </div>
 
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "flex-end",
-                    marginTop: 12,
-                  }}
-                >
+                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
                   <button
                     type="button"
                     className="toggle-btn"
