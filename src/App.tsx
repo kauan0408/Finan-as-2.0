@@ -18,11 +18,9 @@ import ReservaPage from "./pages/ReservaPage.jsx";
 // ✅ NOVAS PÁGINAS
 import ListaPage from "./pages/ListaPage.jsx";
 import LembretesPage from "./pages/LembretesPage.jsx";
-// ❌ remove TrabalhoPage
-// import TrabalhoPage from "./pages/TrabalhoPage.jsx";
 import ReceitasPage from "./pages/ReceitasPage.jsx";
 
-// ✅ CASA (nova página)
+// ✅ CASA (NOVO)
 import DivisaoCasaPage from "./pages/DivisaoCasaPage.jsx";
 
 // 🔐 Firebase (login Google + banco de dados)
@@ -98,13 +96,13 @@ function parseDiaPagamentoToRule(diaPagamentoRaw) {
     if (Number.isFinite(n) && n >= 1 && n <= 31) return { kind: "businessDay", n };
   }
 
-  // ✅ (NOVO) Se você digitar só "5" ou "9" ou "10", entende como DIA ÚTIL
+  // ✅ Se digitar só "5" entende como DIA ÚTIL
   if (/^\d{1,2}$/.test(s)) {
     const n = Number(s);
     if (Number.isFinite(n) && n >= 1 && n <= 31) return { kind: "businessDay", n };
   }
 
-  // Ex.: "dia 10" (aqui continua sendo DIA DO MÊS, caso você queira fixo)
+  // Ex.: "dia 10" (DIA DO MÊS)
   const m2 = s.match(/\bdia\s+(\d{1,2})\b/);
   const day = m2 ? Number(m2[1]) : NaN;
   if (Number.isFinite(day) && day >= 1 && day <= 31) return { kind: "dayOfMonth", day };
@@ -112,16 +110,13 @@ function parseDiaPagamentoToRule(diaPagamentoRaw) {
   return null;
 }
 
-// ✅ calcula qual mês deve estar ativo pelo diaPagamento
 function calcMesRefByPayday(diaPagamentoRaw) {
   const rule = parseDiaPagamentoToRule(diaPagamentoRaw);
   const today = new Date();
   const y = today.getFullYear();
   const m = today.getMonth();
 
-  if (!rule) {
-    return { mes: m, ano: y };
-  }
+  if (!rule) return { mes: m, ano: y };
 
   let payday = null;
 
@@ -184,37 +179,41 @@ const DEFAULT_RESERVA = {
   movimentos: [],
 };
 
-// ✅ defaults das páginas
 const DEFAULT_LISTA = [];
 const DEFAULT_LEMBRETES = [];
 const DEFAULT_RECEITAS = [];
 
+// ✅ (NOVO) DEFAULT DA CASA (DIVISÃO)
+const DEFAULT_DIVISAO_CASA = {
+  casaNome: "Gastos da Casa",
+  modoDivisao: "igual",
+  moradoresCount: 2,
+  moradores: [
+    { id: generateId(), nome: "Morador 1", percentual: 50 },
+    { id: generateId(), nome: "Morador 2", percentual: 50 },
+  ],
+  fixos: [],
+  porMes: {},
+};
+
 /* ---------------- COMPONENTE PRINCIPAL ---------------- */
 
 export default function App() {
-  // 🔐 Usuário logado (Google)
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
-
-  // 🔁 FLAG: já carreguei dados iniciais (nuvem/local) pra este usuário?
   const [dadosCarregados, setDadosCarregados] = useState(false);
 
-  // Perfil
   const [profile, setProfile] = useState(DEFAULT_PROFILE);
-
-  // Transações
   const [transacoes, setTransacoes] = useState([]);
-
-  // Cartões
   const [cartoes, setCartoes] = useState([]);
-
-  // Reserva
   const [reserva, setReserva] = useState(DEFAULT_RESERVA);
 
-  // ✅ estados online para Lista/Lembretes/Receitas
   const [lista, setLista] = useState(DEFAULT_LISTA);
   const [lembretes, setLembretes] = useState(DEFAULT_LEMBRETES);
   const [receitas, setReceitas] = useState(DEFAULT_RECEITAS);
+
+  // ✅ (NOVO) CASA (DIVISÃO) ONLINE/OFFLINE
+  const [divisaoCasa, setDivisaoCasa] = useState(DEFAULT_DIVISAO_CASA);
 
   // ==========================================================
   // ✅ MÊS DE REFERÊNCIA COM PERSISTÊNCIA + MODO AUTOMÁTICO
@@ -308,8 +307,7 @@ export default function App() {
       { key: "lista", label: "🛒 Lista" },
       { key: "lembretes", label: "⏰ Lembretes" },
       { key: "receitas", label: "🍳 Receitas" },
-      // ✅ TROCA: antes era "trabalho" -> agora é "casa"
-      { key: "casa", label: "🏠 Casa" },
+      { key: "casa", label: "🏠 Casa" }, // ✅ agora é "casa"
     ],
     []
   );
@@ -359,10 +357,12 @@ export default function App() {
           const cartoesCloud = data.cartoes || [];
           const reservaCloud = data.reserva || DEFAULT_RESERVA;
 
-          // ✅ cloud
           const listaCloud = data.lista || DEFAULT_LISTA;
           const lembretesCloud = data.lembretes || DEFAULT_LEMBRETES;
           const receitasCloud = data.receitas || DEFAULT_RECEITAS;
+
+          // ✅ (NOVO)
+          const divisaoCasaCloud = data.divisaoCasa || DEFAULT_DIVISAO_CASA;
 
           setProfile(perfilCloud);
           setTransacoes(transacoesCloud);
@@ -373,6 +373,9 @@ export default function App() {
           setLembretes(lembretesCloud);
           setReceitas(receitasCloud);
 
+          // ✅ (NOVO)
+          setDivisaoCasa(divisaoCasaCloud);
+
           saveToStorage(`profile_${uid}`, perfilCloud);
           saveToStorage(`transacoes_${uid}`, transacoesCloud);
           saveToStorage(`cartoes_${uid}`, cartoesCloud);
@@ -381,6 +384,9 @@ export default function App() {
           saveToStorage(`lista_${uid}`, listaCloud);
           saveToStorage(`lembretes_${uid}`, lembretesCloud);
           saveToStorage(`receitas_${uid}`, receitasCloud);
+
+          // ✅ (NOVO)
+          saveToStorage(`divisaoCasa_${uid}`, divisaoCasaCloud);
         } else {
           const storedProfile = loadFromStorage(`profile_${uid}`, null);
           const storedTransacoes = loadFromStorage(`transacoes_${uid}`, null);
@@ -391,6 +397,9 @@ export default function App() {
           const storedLembretes = loadFromStorage(`lembretes_${uid}`, null);
           const storedReceitas = loadFromStorage(`receitas_${uid}`, null);
 
+          // ✅ (NOVO)
+          const storedDivisaoCasa = loadFromStorage(`divisaoCasa_${uid}`, null);
+
           const perfilInicial = storedProfile || DEFAULT_PROFILE;
           const transacoesIniciais = storedTransacoes || [];
           const cartoesIniciais = storedCartoes || [];
@@ -400,6 +409,9 @@ export default function App() {
           const lembretesIniciais = storedLembretes || DEFAULT_LEMBRETES;
           const receitasIniciais = storedReceitas || DEFAULT_RECEITAS;
 
+          // ✅ (NOVO)
+          const divisaoCasaInicial = storedDivisaoCasa || DEFAULT_DIVISAO_CASA;
+
           setProfile(perfilInicial);
           setTransacoes(transacoesIniciais);
           setCartoes(cartoesIniciais);
@@ -408,6 +420,9 @@ export default function App() {
           setLista(listaInicial);
           setLembretes(lembretesIniciais);
           setReceitas(receitasIniciais);
+
+          // ✅ (NOVO)
+          setDivisaoCasa(divisaoCasaInicial);
 
           await setDoc(
             userDocRef,
@@ -420,6 +435,9 @@ export default function App() {
               lista: listaInicial,
               lembretes: lembretesIniciais,
               receitas: receitasIniciais,
+
+              // ✅ (NOVO)
+              divisaoCasa: divisaoCasaInicial,
             },
             { merge: true }
           );
@@ -470,6 +488,9 @@ export default function App() {
           if (data.lista) setLista(data.lista);
           if (data.lembretes) setLembretes(data.lembretes);
           if (data.receitas) setReceitas(data.receitas);
+
+          // ✅ (NOVO)
+          if (data.divisaoCasa) setDivisaoCasa(data.divisaoCasa);
         });
       } catch (err) {
         console.error("Erro ao carregar dados iniciais do Firestore:", err);
@@ -484,6 +505,9 @@ export default function App() {
         const storedLembretes = loadFromStorage(`lembretes_${uid}`, DEFAULT_LEMBRETES);
         const storedReceitas = loadFromStorage(`receitas_${uid}`, DEFAULT_RECEITAS);
 
+        // ✅ (NOVO)
+        const storedDivisaoCasa = loadFromStorage(`divisaoCasa_${uid}`, DEFAULT_DIVISAO_CASA);
+
         setProfile(storedProfile);
         setTransacoes(storedTransacoes);
         setCartoes(storedCartoes);
@@ -492,6 +516,9 @@ export default function App() {
         setLista(storedLista);
         setLembretes(storedLembretes);
         setReceitas(storedReceitas);
+
+        // ✅ (NOVO)
+        setDivisaoCasa(storedDivisaoCasa);
 
         const storedMesAuto = loadFromStorage(`mesAuto_${uid}`, true);
         const storedMesRef = loadFromStorage(`mesRef_${uid}`, null);
@@ -535,9 +562,13 @@ export default function App() {
       transacoes,
       cartoes,
       reserva,
+
       lista,
       lembretes,
       receitas,
+
+      // ✅ (NOVO)
+      divisaoCasa,
     };
 
     saveToStorage(`profile_${uid}`, profile);
@@ -548,6 +579,9 @@ export default function App() {
     saveToStorage(`lista_${uid}`, lista);
     saveToStorage(`lembretes_${uid}`, lembretes);
     saveToStorage(`receitas_${uid}`, receitas);
+
+    // ✅ (NOVO)
+    saveToStorage(`divisaoCasa_${uid}`, divisaoCasa);
 
     if (!navigator.onLine) {
       saveToStorage(`pendingSync_${uid}`, payload);
@@ -562,7 +596,19 @@ export default function App() {
         console.error("Erro ao salvar dados no Firestore:", err);
         saveToStorage(`pendingSync_${uid}`, payload);
       });
-  }, [user, dadosCarregados, profile, transacoes, cartoes, reserva, lista, lembretes, receitas]);
+  }, [
+    user,
+    dadosCarregados,
+    profile,
+    transacoes,
+    cartoes,
+    reserva,
+    lista,
+    lembretes,
+    receitas,
+    // ✅ (NOVO)
+    divisaoCasa,
+  ]);
 
   /* ------- 3) SINCRONIZAR PENDÊNCIAS ------- */
 
@@ -659,6 +705,11 @@ export default function App() {
       receitas,
       setReceitas,
 
+      // ✅ (NOVO)
+      divisaoCasa,
+      setDivisaoCasa,
+
+      // ✅ mês global
       mesReferencia,
       mudarMesReferencia,
       irParaMesAtual,
@@ -669,7 +720,19 @@ export default function App() {
       loginComGoogle,
       logout,
     }),
-    [user, profile, transacoes, cartoes, reserva, lista, lembretes, receitas, mesReferencia, mesAuto]
+    [
+      user,
+      profile,
+      transacoes,
+      cartoes,
+      reserva,
+      lista,
+      lembretes,
+      receitas,
+      divisaoCasa,
+      mesReferencia,
+      mesAuto,
+    ]
   );
 
   /* ------- ESCOLHE PÁGINA ------- */
@@ -689,7 +752,7 @@ export default function App() {
       pagina = <ReceitasPage />;
       break;
 
-    // ✅ TROCA: agora "casa" abre DivisaoCasaPage
+    // ✅ (NOVO) Casa abre a página certa
     case "casa":
       pagina = <DivisaoCasaPage />;
       break;
@@ -709,7 +772,6 @@ export default function App() {
     case "perfil":
       pagina = <PerfilPage />;
       break;
-
     default:
       pagina = <FinancasPage />;
   }
@@ -747,7 +809,8 @@ export default function App() {
             <div className="card profile-card">
               <h2 className="page-title">Entrar</h2>
               <p className="muted small">
-                Faça login com sua conta Google para usar o app e salvar seus dados com segurança.
+                Faça login com sua conta Google para usar o app e salvar seus
+                dados com segurança.
               </p>
 
               <button
@@ -882,7 +945,10 @@ export default function App() {
           )}
 
           {menuMaisAberto && (
-            <div className="modal-overlay" onClick={() => setMenuMaisAberto(false)}>
+            <div
+              className="modal-overlay"
+              onClick={() => setMenuMaisAberto(false)}
+            >
               <div className="modal-card" onClick={(e) => e.stopPropagation()}>
                 <h3>Atalhos</h3>
 
@@ -900,7 +966,13 @@ export default function App() {
                   ))}
                 </div>
 
-                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "flex-end",
+                    marginTop: 12,
+                  }}
+                >
                   <button
                     type="button"
                     className="toggle-btn"
