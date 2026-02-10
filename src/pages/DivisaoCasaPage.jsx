@@ -9,6 +9,11 @@
 // - Nome do morador agora dá pra trocar normalmente.
 // - Nº de moradores não buga: tem botões + / - e o input também funciona.
 // - Se você clicar em "Casa" e cair em outra aba, o problema é no App.jsx (troca do componente/rota). Aqui é só a página.
+//
+// ✅ NOVO (SEU PEDIDO):
+// - Guarda SEMPRE só 2 meses na Casa: mês atual REAL + mês anterior REAL (não depende de você voltar/avançar).
+// - Mostra “Contas do mês passado” (somente do mês passado).
+// - Botões: Voltar 1 mês / Avançar 1 mês (navega no mesReferencia).
 
 import React, { useEffect, useMemo, useState } from "react";
 import jsPDF from "jspdf";
@@ -146,6 +151,40 @@ function normalizePercentuais(modoDivisao, moradores) {
   return raw.map((p) => (p / sum) * 100);
 }
 
+// ✅ Helpers mês anterior / retenção 2 meses
+function monthKeyToIndex(key) {
+  const [y, m] = String(key || "").split("-");
+  const yy = Number(y);
+  const mm = Number(m);
+  if (!Number.isFinite(yy) || !Number.isFinite(mm)) return null;
+  return yy * 12 + (mm - 1);
+}
+
+function indexToMonthKey(idx) {
+  const y = Math.floor(idx / 12);
+  const m0 = ((idx % 12) + 12) % 12;
+  return `${y}-${pad2(m0 + 1)}`;
+}
+
+function prevMonthKey(key) {
+  const idx = monthKeyToIndex(key);
+  if (idx === null) return null;
+  return indexToMonthKey(idx - 1);
+}
+
+function keepOnlyTwoMonths(porMes, realCurrentKey) {
+  const obj = porMes && typeof porMes === "object" ? porMes : {};
+  const curIdx = monthKeyToIndex(realCurrentKey);
+  if (curIdx === null) return obj;
+
+  const keep = new Set([realCurrentKey, indexToMonthKey(curIdx - 1)]);
+  const next = {};
+  for (const k of Object.keys(obj)) {
+    if (keep.has(k)) next[k] = obj[k];
+  }
+  return next;
+}
+
 /**
  * Estrutura:
  * {
@@ -174,8 +213,72 @@ const DEFAULT_STATE = {
 };
 
 export default function DivisaoCasaPage() {
-  const { profile, mesReferencia } = useFinance() || {};
+  const finance = useFinance() || {};
+  const { profile, mesReferencia, mudarMesReferencia, setMesAuto } = finance;
+
+  // 🔎 mês que você está VISUALIZANDO (mesReferencia)
   const mesKey = useMemo(() => mesKeyFromRef(mesReferencia), [mesReferencia]);
+
+  // ✅ mês REAL (não depende de você voltar/avançar) — baseado no relógio + regra do diaPagamento
+  const mesKeyReal = useMemo(() => {
+    const today = new Date();
+    const y = today.getFullYear();
+    const m = today.getMonth();
+
+    // regra simples e segura: se não tiver diaPagamento, usa mês atual do calendário
+    const diaRaw = String(profile?.diaPagamento || "").trim().toLowerCase();
+
+    // se o diaPagamento não estiver definido, assume calendário normal
+    if (!diaRaw) return `${y}-${pad2(m + 1)}`;
+
+    // tenta interpretar "5º dia útil" / "5" (dia útil) / "dia 10"
+    const isBusiness = diaRaw.includes("dia util") || diaRaw.includes("dia útil") || /^\d{1,2}$/.test(diaRaw);
+    let paydayDate = null;
+
+    const getNthBusinessDayDate = (year, monthIndex, n) => {
+      let count = 0;
+      const d = new Date(year, monthIndex, 1);
+      while (d.getMonth() === monthIndex) {
+        const day = d.getDay();
+        const isBusinessDay = day !== 0 && day !== 6;
+        if (isBusinessDay) {
+          count++;
+          if (count === n) return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+        }
+        d.setDate(d.getDate() + 1);
+      }
+      return null;
+    };
+
+    if (isBusiness) {
+      const mm = diaRaw.match(/(\d+)/);
+      const n = mm ? Number(mm[1]) : NaN;
+      if (Number.isFinite(n) && n >= 1 && n <= 31) {
+        paydayDate = getNthBusinessDayDate(y, m, n);
+      }
+    } else {
+      const mm = diaRaw.match(/\bdia\s+(\d{1,2})\b/);
+      const day = mm ? Number(mm[1]) : NaN;
+      if (Number.isFinite(day) && day >= 1 && day <= 31) {
+        const lastDay = new Date(y, m + 1, 0).getDate();
+        paydayDate = new Date(y, m, Math.min(lastDay, day));
+      }
+    }
+
+    if (!paydayDate) return `${y}-${pad2(m + 1)}`;
+
+    const t0 = new Date(y, m, today.getDate());
+    const p0 = new Date(y, m, paydayDate.getDate());
+
+    // se hoje ainda não chegou no "dia de virar", mês real é o anterior
+    if (t0 < p0) {
+      const prev = new Date(y, m - 1, 1);
+      return `${prev.getFullYear()}-${pad2(prev.getMonth() + 1)}`;
+    }
+    return `${y}-${pad2(m + 1)}`;
+  }, [profile?.diaPagamento]);
+
+  const prevRealKey = useMemo(() => prevMonthKey(mesKeyReal), [mesKeyReal]);
 
   const [state, setState] = useState(() => DEFAULT_STATE);
 
@@ -199,7 +302,14 @@ export default function DivisaoCasaPage() {
   // ====== persist helpers (evita bug por "state" antigo) ======
   function persist(updater) {
     setState((prev) => {
-      const next = typeof updater === "function" ? updater(prev) : updater;
+      let next = typeof updater === "function" ? updater(prev) : updater;
+
+      // ✅ AQUI É O SEU PEDIDO: guarda só 2 meses (mês real + anterior real)
+      next = {
+        ...next,
+        porMes: keepOnlyTwoMonths(next.porMes, mesKeyReal),
+      };
+
       try {
         localStorage.setItem(LS_KEY, JSON.stringify(next));
       } catch (e) {
@@ -223,13 +333,21 @@ export default function DivisaoCasaPage() {
       merged.fixos = Array.isArray(merged.fixos) ? merged.fixos : [];
       merged.porMes = merged.porMes && typeof merged.porMes === "object" ? merged.porMes : {};
 
+      // ✅ aplica retenção ao carregar
+      merged.porMes = keepOnlyTwoMonths(merged.porMes, mesKeyReal);
+
       setState(merged);
     } else {
-      setState(DEFAULT_STATE);
+      // ✅ garante retenção também no default
+      setState({
+        ...DEFAULT_STATE,
+        porMes: keepOnlyTwoMonths(DEFAULT_STATE.porMes, mesKeyReal),
+      });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // garante que o mês atual exista no porMes
+  // garante que o mês VISUALIZADO exista no porMes (sem quebrar navegação)
   useEffect(() => {
     if (!mesKey) return;
     persist((prev) => {
@@ -240,6 +358,15 @@ export default function DivisaoCasaPage() {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mesKey]);
+
+  // ✅ quando o mês REAL muda, limpa automático mantendo só mês real e anterior
+  useEffect(() => {
+    persist((prev) => ({
+      ...prev,
+      porMes: keepOnlyTwoMonths(prev.porMes, mesKeyReal),
+    }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mesKeyReal]);
 
   // ====== derivados ======
   const moradores = useMemo(() => {
@@ -256,16 +383,20 @@ export default function DivisaoCasaPage() {
 
   const fixos = useMemo(() => (Array.isArray(state.fixos) ? state.fixos : []), [state.fixos]);
 
+  // variáveis do mês VISUALIZADO
   const variaveisMes = useMemo(() => {
     const obj = state.porMes && typeof state.porMes === "object" ? state.porMes : {};
     const registro = obj[mesKey] || { variaveis: [] };
     return Array.isArray(registro.variaveis) ? registro.variaveis : [];
   }, [state.porMes, mesKey]);
 
-  const itensDoMes = useMemo(() => {
-    // FIXOS + VARIÁVEIS DO MÊS (para cálculo e resumo)
-    return [...fixos, ...variaveisMes];
-  }, [fixos, variaveisMes]);
+  // ✅ variáveis do MÊS PASSADO REAL (somente ele)
+  const variaveisMesPassado = useMemo(() => {
+    const obj = state.porMes && typeof state.porMes === "object" ? state.porMes : {};
+    if (!prevRealKey) return [];
+    const registro = obj[prevRealKey] || { variaveis: [] };
+    return Array.isArray(registro.variaveis) ? registro.variaveis : [];
+  }, [state.porMes, prevRealKey]);
 
   const totalFixos = useMemo(
     () => fixos.reduce((acc, it) => acc + Number(it?.valor || 0), 0),
@@ -276,6 +407,11 @@ export default function DivisaoCasaPage() {
     [variaveisMes]
   );
   const totalGeral = useMemo(() => totalFixos + totalVariaveis, [totalFixos, totalVariaveis]);
+
+  const totalVariaveisMesPassado = useMemo(
+    () => variaveisMesPassado.reduce((acc, it) => acc + Number(it?.valor || 0), 0),
+    [variaveisMesPassado]
+  );
 
   const valorPorPessoa = useMemo(() => {
     return moradores.map((_, idx) => (totalGeral * (percentuaisNormalizados[idx] || 0)) / 100);
@@ -291,12 +427,10 @@ export default function DivisaoCasaPage() {
     persist((prev) => {
       let nextMoradores = ensureMoradores(prev.moradores, c);
 
-      // se modo igual, ajusta percentuais automaticamente
       if (prev.modoDivisao === "igual") {
         const eq = 100 / c;
         nextMoradores = nextMoradores.map((m) => ({ ...m, percentual: eq }));
       } else {
-        // mantém percentuais digitados; se tudo zerado, define igual
         const sum = nextMoradores.reduce((acc, m) => acc + Number(m?.percentual || 0), 0);
         if (sum <= 0) {
           const eq = 100 / c;
@@ -446,10 +580,8 @@ export default function DivisaoCasaPage() {
     );
     if (!ok) return;
 
-    // calcula mês anterior do mesKey
-    const [yy, mm] = mesKey.split("-").map(Number);
-    const d = new Date(yy, (mm - 1) - 1, 1); // mês anterior (0-index internamente)
-    const prevKey = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
+    const prevKey = prevMonthKey(mesKey);
+    if (!prevKey) return;
 
     persist((prev) => {
       const porMes = prev.porMes && typeof prev.porMes === "object" ? { ...prev.porMes } : {};
@@ -488,10 +620,19 @@ export default function DivisaoCasaPage() {
     resetForm();
   }
 
+  // ✅ botões de navegação por mês dentro da Casa
+  function voltarUmMes() {
+    if (typeof setMesAuto === "function") setMesAuto(false);
+    if (typeof mudarMesReferencia === "function") mudarMesReferencia(-1);
+  }
+
+  function avancarUmMes() {
+    if (typeof setMesAuto === "function") setMesAuto(false);
+    if (typeof mudarMesReferencia === "function") mudarMesReferencia(+1);
+  }
+
   // ====== PDF ======
   function gerarPDF() {
-    // se der erro por falta de dependência, o build nem passa,
-    // mas isso aqui ajuda no runtime caso o import esteja ok.
     if (!jsPDF || !autoTable) {
       alert("PDF indisponível. Instale: npm i jspdf jspdf-autotable");
       return;
@@ -652,7 +793,7 @@ export default function DivisaoCasaPage() {
 
         <div className="filters-grid">
           <div className="field">
-            <label>Mês de referência</label>
+            <label>Mês de referência (na tela)</label>
             <input type="text" value={monthLabel(mesKey)} readOnly />
           </div>
 
@@ -661,6 +802,67 @@ export default function DivisaoCasaPage() {
             <input type="text" value={String(profile?.diaPagamento || "")} readOnly placeholder="Defina no Perfil" />
           </div>
         </div>
+
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+          <button type="button" className="chip" style={{ width: "auto" }} onClick={voltarUmMes}>
+            ◀ Voltar 1 mês
+          </button>
+          <button type="button" className="chip" style={{ width: "auto" }} onClick={avancarUmMes}>
+            Avançar 1 mês ▶
+          </button>
+
+          <div className="muted small" style={{ marginLeft: "auto" }}>
+            Retenção: fica salvo <b>{monthLabel(mesKeyReal)}</b> e <b>{monthLabel(prevRealKey)}</b>.
+          </div>
+        </div>
+      </div>
+
+      {/* ✅ Contas do mês passado (somente do mês passado) */}
+      <div className="card mt">
+        <h3 style={{ marginBottom: 8 }}>Contas do mês passado (somente)</h3>
+        <div className="muted small" style={{ marginBottom: 10 }}>
+          Aqui mostra apenas as variáveis do mês passado real: <b>{monthLabel(prevRealKey)}</b>.
+        </div>
+
+        {variaveisMesPassado.length === 0 ? (
+          <p className="muted small">Nenhuma conta variável encontrada no mês passado.</p>
+        ) : (
+          <>
+            <ul className="list">
+              {variaveisMesPassado.map((it) => (
+                <li key={it.id} className="list-item">
+                  <div style={{ flex: 1 }}>
+                    <div className="muted">
+                      <b>{it.nome}</b> — {formatBRL(it.valor || 0)}
+                      {it.vencimento ? (
+                        <span className="badge" style={{ marginLeft: 8 }}>
+                          Venc: {fmtBRDate(it.vencimento)}
+                        </span>
+                      ) : null}
+                      {it.responsavel ? (
+                        <span className="badge" style={{ marginLeft: 8 }}>
+                          Resp: {it.responsavel}
+                        </span>
+                      ) : null}
+                    </div>
+
+                    {it.observacao ? (
+                      <div className="muted small" style={{ marginTop: 4 }}>
+                        {it.observacao}
+                      </div>
+                    ) : null}
+                  </div>
+                </li>
+              ))}
+            </ul>
+
+            <div className="mt">
+              <div className="muted small">
+                Total variáveis (mês passado): <b>{formatBRL(totalVariaveisMesPassado)}</b>
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       <div className="card mt">
@@ -757,7 +959,7 @@ export default function DivisaoCasaPage() {
             <select
               value={tipoGasto}
               onChange={(e) => setTipoGasto(e.target.value === "fixo" ? "fixo" : "variavel")}
-              disabled={!!editId} // em edição, trava o tipo para não dar confusão
+              disabled={!!editId}
             >
               <option value="variavel">Variável (muda todo mês: água, luz…)</option>
               <option value="fixo">Fixo (repete todo mês: aluguel, condomínio…)</option>
@@ -784,11 +986,7 @@ export default function DivisaoCasaPage() {
 
         <div className="field">
           <label>Ou digite</label>
-          <input
-            value={itemNome}
-            onChange={(e) => setItemNome(e.target.value)}
-            placeholder="Ex.: Água"
-          />
+          <input value={itemNome} onChange={(e) => setItemNome(e.target.value)} placeholder="Ex.: Água" />
         </div>
 
         <div className="filters-grid">
