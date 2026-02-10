@@ -20,7 +20,7 @@ import ListaPage from "./pages/ListaPage.jsx";
 import LembretesPage from "./pages/LembretesPage.jsx";
 import ReceitasPage from "./pages/ReceitasPage.jsx";
 
-// ✅ CASA (NOVO)
+// ✅ CASA
 import DivisaoCasaPage from "./pages/DivisaoCasaPage.jsx";
 
 // 🔐 Firebase (login Google + banco de dados)
@@ -162,6 +162,41 @@ function makeISOInMesReferencia(mesReferencia) {
   return d.toISOString();
 }
 
+/* ✅ Helpers: retenção 2 meses da Casa baseado no MÊS REAL */
+function pad2(n) {
+  return String(n).padStart(2, "0");
+}
+function monthKeyFromRef(ref) {
+  const now = new Date();
+  const ano = Number(ref?.ano ?? now.getFullYear());
+  const mes0 = Number(ref?.mes ?? now.getMonth());
+  return `${ano}-${pad2(mes0 + 1)}`; // YYYY-MM
+}
+function monthKeyToIndex(key) {
+  const [y, m] = String(key || "").split("-");
+  const yy = Number(y);
+  const mm = Number(m);
+  if (!Number.isFinite(yy) || !Number.isFinite(mm)) return null;
+  return yy * 12 + (mm - 1);
+}
+function indexToMonthKey(idx) {
+  const y = Math.floor(idx / 12);
+  const m0 = ((idx % 12) + 12) % 12;
+  return `${y}-${pad2(m0 + 1)}`;
+}
+function keepOnlyTwoMonths(porMes, realKey) {
+  const obj = porMes && typeof porMes === "object" ? porMes : {};
+  const curIdx = monthKeyToIndex(realKey);
+  if (curIdx === null) return obj;
+
+  const keep = new Set([realKey, indexToMonthKey(curIdx - 1)]);
+  const next = {};
+  for (const k of Object.keys(obj)) {
+    if (keep.has(k)) next[k] = obj[k];
+  }
+  return next;
+}
+
 /* Valores padrão */
 const DEFAULT_PROFILE = {
   nome: "",
@@ -183,7 +218,7 @@ const DEFAULT_LISTA = [];
 const DEFAULT_LEMBRETES = [];
 const DEFAULT_RECEITAS = [];
 
-// ✅ (NOVO) DEFAULT DA CASA (DIVISÃO)
+// ✅ DEFAULT DA CASA
 const DEFAULT_DIVISAO_CASA = {
   casaNome: "Gastos da Casa",
   modoDivisao: "igual",
@@ -212,7 +247,7 @@ export default function App() {
   const [lembretes, setLembretes] = useState(DEFAULT_LEMBRETES);
   const [receitas, setReceitas] = useState(DEFAULT_RECEITAS);
 
-  // ✅ (NOVO) CASA (DIVISÃO) ONLINE/OFFLINE
+  // ✅ CASA
   const [divisaoCasa, setDivisaoCasa] = useState(DEFAULT_DIVISAO_CASA);
 
   // ==========================================================
@@ -295,6 +330,28 @@ export default function App() {
     return () => clearInterval(id);
   }, [mesAuto, profile?.diaPagamento, user]);
 
+  // ✅ (NOVO) Retenção 2 meses da Casa baseada no MÊS REAL (não no que você está visualizando)
+  useEffect(() => {
+    const mesRealRef = calcMesRefByPayday(profile?.diaPagamento);
+    const realKey = monthKeyFromRef(mesRealRef);
+
+    setDivisaoCasa((prev) => {
+      const p = prev && typeof prev === "object" ? prev : DEFAULT_DIVISAO_CASA;
+      const porMes = p.porMes && typeof p.porMes === "object" ? p.porMes : {};
+      const cleaned = keepOnlyTwoMonths(porMes, realKey);
+
+      // evita render à toa se não mudou
+      const prevKeys = Object.keys(porMes);
+      const nextKeys = Object.keys(cleaned);
+      const same =
+        prevKeys.length === nextKeys.length &&
+        nextKeys.every((k) => porMes[k] === cleaned[k]);
+
+      if (same) return p;
+      return { ...p, porMes: cleaned };
+    });
+  }, [profile?.diaPagamento]);
+
   // ✅ Aba atual geral
   const [abaAtiva, setAbaAtiva] = useState("financas");
 
@@ -307,7 +364,7 @@ export default function App() {
       { key: "lista", label: "🛒 Lista" },
       { key: "lembretes", label: "⏰ Lembretes" },
       { key: "receitas", label: "🍳 Receitas" },
-      { key: "casa", label: "🏠 Casa" }, // ✅ agora é "casa"
+      { key: "casa", label: "🏠 Casa" },
     ],
     []
   );
@@ -361,8 +418,16 @@ export default function App() {
           const lembretesCloud = data.lembretes || DEFAULT_LEMBRETES;
           const receitasCloud = data.receitas || DEFAULT_RECEITAS;
 
-          // ✅ (NOVO)
-          const divisaoCasaCloud = data.divisaoCasa || DEFAULT_DIVISAO_CASA;
+          // ✅ Casa (com retenção aplicada na hora de carregar)
+          const mesRealRef = calcMesRefByPayday(perfilCloud?.diaPagamento);
+          const realKey = monthKeyFromRef(mesRealRef);
+
+          const casaCloudRaw = data.divisaoCasa || DEFAULT_DIVISAO_CASA;
+          const casaCloud = {
+            ...DEFAULT_DIVISAO_CASA,
+            ...casaCloudRaw,
+            porMes: keepOnlyTwoMonths(casaCloudRaw?.porMes, realKey),
+          };
 
           setProfile(perfilCloud);
           setTransacoes(transacoesCloud);
@@ -373,8 +438,7 @@ export default function App() {
           setLembretes(lembretesCloud);
           setReceitas(receitasCloud);
 
-          // ✅ (NOVO)
-          setDivisaoCasa(divisaoCasaCloud);
+          setDivisaoCasa(casaCloud);
 
           saveToStorage(`profile_${uid}`, perfilCloud);
           saveToStorage(`transacoes_${uid}`, transacoesCloud);
@@ -385,8 +449,7 @@ export default function App() {
           saveToStorage(`lembretes_${uid}`, lembretesCloud);
           saveToStorage(`receitas_${uid}`, receitasCloud);
 
-          // ✅ (NOVO)
-          saveToStorage(`divisaoCasa_${uid}`, divisaoCasaCloud);
+          saveToStorage(`divisaoCasa_${uid}`, casaCloud);
         } else {
           const storedProfile = loadFromStorage(`profile_${uid}`, null);
           const storedTransacoes = loadFromStorage(`transacoes_${uid}`, null);
@@ -397,7 +460,6 @@ export default function App() {
           const storedLembretes = loadFromStorage(`lembretes_${uid}`, null);
           const storedReceitas = loadFromStorage(`receitas_${uid}`, null);
 
-          // ✅ (NOVO)
           const storedDivisaoCasa = loadFromStorage(`divisaoCasa_${uid}`, null);
 
           const perfilInicial = storedProfile || DEFAULT_PROFILE;
@@ -409,8 +471,15 @@ export default function App() {
           const lembretesIniciais = storedLembretes || DEFAULT_LEMBRETES;
           const receitasIniciais = storedReceitas || DEFAULT_RECEITAS;
 
-          // ✅ (NOVO)
-          const divisaoCasaInicial = storedDivisaoCasa || DEFAULT_DIVISAO_CASA;
+          const mesRealRef = calcMesRefByPayday(perfilInicial?.diaPagamento);
+          const realKey = monthKeyFromRef(mesRealRef);
+
+          const casaInicialRaw = storedDivisaoCasa || DEFAULT_DIVISAO_CASA;
+          const casaInicial = {
+            ...DEFAULT_DIVISAO_CASA,
+            ...casaInicialRaw,
+            porMes: keepOnlyTwoMonths(casaInicialRaw?.porMes, realKey),
+          };
 
           setProfile(perfilInicial);
           setTransacoes(transacoesIniciais);
@@ -421,8 +490,7 @@ export default function App() {
           setLembretes(lembretesIniciais);
           setReceitas(receitasIniciais);
 
-          // ✅ (NOVO)
-          setDivisaoCasa(divisaoCasaInicial);
+          setDivisaoCasa(casaInicial);
 
           await setDoc(
             userDocRef,
@@ -436,8 +504,7 @@ export default function App() {
               lembretes: lembretesIniciais,
               receitas: receitasIniciais,
 
-              // ✅ (NOVO)
-              divisaoCasa: divisaoCasaInicial,
+              divisaoCasa: casaInicial,
             },
             { merge: true }
           );
@@ -489,8 +556,15 @@ export default function App() {
           if (data.lembretes) setLembretes(data.lembretes);
           if (data.receitas) setReceitas(data.receitas);
 
-          // ✅ (NOVO)
-          if (data.divisaoCasa) setDivisaoCasa(data.divisaoCasa);
+          if (data.divisaoCasa) {
+            const mesRealRef = calcMesRefByPayday((data.profile || profile)?.diaPagamento);
+            const realKey = monthKeyFromRef(mesRealRef);
+            setDivisaoCasa((prev) => ({
+              ...DEFAULT_DIVISAO_CASA,
+              ...(data.divisaoCasa || prev),
+              porMes: keepOnlyTwoMonths(data.divisaoCasa?.porMes, realKey),
+            }));
+          }
         });
       } catch (err) {
         console.error("Erro ao carregar dados iniciais do Firestore:", err);
@@ -505,8 +579,10 @@ export default function App() {
         const storedLembretes = loadFromStorage(`lembretes_${uid}`, DEFAULT_LEMBRETES);
         const storedReceitas = loadFromStorage(`receitas_${uid}`, DEFAULT_RECEITAS);
 
-        // ✅ (NOVO)
         const storedDivisaoCasa = loadFromStorage(`divisaoCasa_${uid}`, DEFAULT_DIVISAO_CASA);
+
+        const mesRealRef = calcMesRefByPayday(storedProfile?.diaPagamento);
+        const realKey = monthKeyFromRef(mesRealRef);
 
         setProfile(storedProfile);
         setTransacoes(storedTransacoes);
@@ -517,8 +593,11 @@ export default function App() {
         setLembretes(storedLembretes);
         setReceitas(storedReceitas);
 
-        // ✅ (NOVO)
-        setDivisaoCasa(storedDivisaoCasa);
+        setDivisaoCasa({
+          ...DEFAULT_DIVISAO_CASA,
+          ...storedDivisaoCasa,
+          porMes: keepOnlyTwoMonths(storedDivisaoCasa?.porMes, realKey),
+        });
 
         const storedMesAuto = loadFromStorage(`mesAuto_${uid}`, true);
         const storedMesRef = loadFromStorage(`mesRef_${uid}`, null);
@@ -557,6 +636,16 @@ export default function App() {
     const uid = user.uid;
     const userDocRef = doc(db, "users", uid);
 
+    // ✅ aplica retenção antes de salvar
+    const mesRealRef = calcMesRefByPayday(profile?.diaPagamento);
+    const realKey = monthKeyFromRef(mesRealRef);
+
+    const divisaoCasaClean = {
+      ...DEFAULT_DIVISAO_CASA,
+      ...(divisaoCasa || {}),
+      porMes: keepOnlyTwoMonths(divisaoCasa?.porMes, realKey),
+    };
+
     const payload = {
       profile,
       transacoes,
@@ -567,8 +656,7 @@ export default function App() {
       lembretes,
       receitas,
 
-      // ✅ (NOVO)
-      divisaoCasa,
+      divisaoCasa: divisaoCasaClean,
     };
 
     saveToStorage(`profile_${uid}`, profile);
@@ -580,8 +668,7 @@ export default function App() {
     saveToStorage(`lembretes_${uid}`, lembretes);
     saveToStorage(`receitas_${uid}`, receitas);
 
-    // ✅ (NOVO)
-    saveToStorage(`divisaoCasa_${uid}`, divisaoCasa);
+    saveToStorage(`divisaoCasa_${uid}`, divisaoCasaClean);
 
     if (!navigator.onLine) {
       saveToStorage(`pendingSync_${uid}`, payload);
@@ -606,7 +693,6 @@ export default function App() {
     lista,
     lembretes,
     receitas,
-    // ✅ (NOVO)
     divisaoCasa,
   ]);
 
@@ -705,11 +791,9 @@ export default function App() {
       receitas,
       setReceitas,
 
-      // ✅ (NOVO)
       divisaoCasa,
       setDivisaoCasa,
 
-      // ✅ mês global
       mesReferencia,
       mudarMesReferencia,
       irParaMesAtual,
@@ -752,7 +836,6 @@ export default function App() {
       pagina = <ReceitasPage />;
       break;
 
-    // ✅ (NOVO) Casa abre a página certa
     case "casa":
       pagina = <DivisaoCasaPage />;
       break;
