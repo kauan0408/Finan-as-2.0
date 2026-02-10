@@ -87,13 +87,6 @@ function addDays(dateObj, days) {
   return d;
 }
 
-// (mantido — pode ser útil no futuro)
-function addMinutes(dateObj, minutes) {
-  const d = new Date(dateObj);
-  d.setMinutes(d.getMinutes() + Number(minutes || 0));
-  return d;
-}
-
 function startOfDay(dateObj) {
   const d = new Date(dateObj);
   d.setHours(0, 0, 0, 0);
@@ -141,7 +134,8 @@ function clampDayToMonth(year, monthIndex, day) {
 
 /**
  * ✅ Intervalo (a cada X dias/semanas)
- * - recebe baseDate (âncora) e sempre devolve uma data FUTURA
+ * - recebe baseDate (âncora) e sempre devolve uma data FUTURA (a partir de "agora")
+ * - usado na criação/edição (não no clique Pago/Feito)
  */
 function computeNextDueIntervalFromBase(baseDate, intervalDays, timeHHmm) {
   const interval = Math.max(1, Number(intervalDays || 1));
@@ -156,7 +150,8 @@ function computeNextDueIntervalFromBase(baseDate, intervalDays, timeHHmm) {
 }
 
 /**
- * ✅ Semanal
+ * ✅ Semanal (a partir de "agora")
+ * - usado na criação/edição (não no clique Pago/Feito)
  */
 function computeNextDueWeekdays(fromDate, weekdays, timeHHmm) {
   const days = Array.isArray(weekdays) ? Array.from(new Set(weekdays)) : [];
@@ -178,7 +173,8 @@ function computeNextDueWeekdays(fromDate, weekdays, timeHHmm) {
 }
 
 /**
- * ✅ Mensal (lista de dias)
+ * ✅ Mensal (lista de dias) (a partir de "agora")
+ * - usado na criação/edição (não no clique Pago/Feito)
  */
 function computeNextDueMonthDays(fromDate, monthDays, timeHHmm) {
   const md = Array.isArray(monthDays) ? monthDays.slice().sort((a, b) => a - b) : [];
@@ -291,14 +287,14 @@ function nextAnniversary(dataBaseYMD, fromDate, timeHHmm) {
 }
 
 /**
- * ✅ Avança a partir do "fromDate" (importante para o giro pós-conclusão)
+ * ✅ Avança a partir do "fromDate"
+ * (usado na criação/edição e em alguns fluxos de conflito)
  */
 function computeNextDueAdvanced(itemLike, fromDate) {
   const scheduleType = itemLike?.scheduleType || "intervalo";
   const timeHHmm = itemLike?.timeHHmm || "09:00";
 
   if (scheduleType === "diario") {
-    // ✅ usa fromDate como referência (não "hoje sempre")
     const baseDay = startOfDay(fromDate);
     const cand = makeDateAtTime(baseDay, timeHHmm);
     if (cand.getTime() >= Date.now() + 60 * 1000) return cand;
@@ -327,9 +323,7 @@ function computeNextDueAdvanced(itemLike, fromDate) {
 }
 
 function computeNextDueWithConflict(itemLike, fromDate, fullList, excludeId) {
-  const conflictMode =
-    itemLike?.conflictMode || (itemLike?.noSameDay ? "shift" : "allow");
-
+  const conflictMode = itemLike?.conflictMode || (itemLike?.noSameDay ? "shift" : "allow");
   const noSameDayShift = conflictMode === "shift";
   const block = conflictMode === "block";
 
@@ -342,10 +336,8 @@ function computeNextDueWithConflict(itemLike, fromDate, fullList, excludeId) {
           const mode = itemLike?.scheduleMode || "interval";
           const timeHHmm = itemLike?.timeHHmm || "09:00";
 
-          if (mode === "weekdays")
-            return computeNextDueWeekdays(base, itemLike.weekdays || [], timeHHmm);
-          if (mode === "monthdays")
-            return computeNextDueMonthDays(base, itemLike.monthDays || [], timeHHmm);
+          if (mode === "weekdays") return computeNextDueWeekdays(base, itemLike.weekdays || [], timeHHmm);
+          if (mode === "monthdays") return computeNextDueMonthDays(base, itemLike.monthDays || [], timeHHmm);
 
           const intervalDays = unitToDays(itemLike.unit || "dias", itemLike.every || 1);
           return computeNextDueIntervalFromBase(base, intervalDays, timeHHmm);
@@ -673,31 +665,144 @@ export default function LembretesPage() {
   }
 
   /**
-   * ✅ CÁLCULO CORRETO DO PRÓXIMO APÓS CONCLUIR (FIX FINAL)
-   * - Ao clicar "Pago/Feito", SEMPRE AVANÇA a recorrência.
-   * - Intervalo: soma exatamente o intervalo (3 dias, 14 dias...) a partir do vencimento atual.
-   * - Outros tipos: procura a partir do dia seguinte para não repetir o mesmo dia.
+   * ✅ PRÓXIMO APÓS "PAGO/FEITO" (CORRIGE TODOS OS TIPOS)
+   * Regra: ao clicar, sempre avança a recorrência a partir do vencimento atual (nextDueISO),
+   * sem depender do relógio "agora" (Date.now).
    */
   function computeNextFromCurrentDue(item, fullList) {
     const due = new Date(item?.nextDueISO || "");
     const baseDue = Number.isNaN(due.getTime()) ? new Date() : due;
 
-    const st = item?.scheduleType || "intervalo";
-    const timeHHmm = item?.timeHHmm || "09:00";
+    const conflictMode = item?.conflictMode || (item?.noSameDay ? "shift" : "allow");
+    const noSameDayShift = conflictMode === "shift";
+    const block = conflictMode === "block";
 
-    let from;
+    function computeNextOccurrenceStrict(it, base) {
+      const st = it?.scheduleType || "intervalo";
+      const timeHHmm = it?.timeHHmm || "09:00";
 
-    if (st === "intervalo") {
-      const intervalDays = unitToDays(item?.unit || "dias", item?.every || 1);
-      const anchorDay = startOfDay(baseDue);
+      // ✅ Intervalo (dias/semanas): soma EXATAMENTE o intervalo a partir do vencimento atual
+      if (st === "intervalo") {
+        const intervalDays = unitToDays(it?.unit || "dias", it?.every || 1);
+        const anchorDay = startOfDay(base);
+        const nextBase = addDays(anchorDay, intervalDays);
+        return makeDateAtTime(nextBase, timeHHmm);
+      }
+
+      // ✅ Diário: sempre dia seguinte
+      if (st === "diario") {
+        const nextDay = addDays(startOfDay(base), 1);
+        return makeDateAtTime(nextDay, timeHHmm);
+      }
+
+      // ✅ Semanal (dias da semana): próximo dia marcado APÓS o vencimento atual
+      if (st === "semanal") {
+        const days = Array.isArray(it?.weekdays) ? Array.from(new Set(it.weekdays)) : [];
+        if (!days.length) return null;
+
+        const start = addDays(startOfDay(base), 1);
+
+        for (let i = 0; i <= 366; i++) {
+          const dayBase = addDays(start, i);
+          const dow = dayBase.getDay();
+          if (!days.includes(dow)) continue;
+          return makeDateAtTime(dayBase, timeHHmm);
+        }
+        return null;
+      }
+
+      // ✅ Mensal (dia do mês): próxima ocorrência após o vencimento atual
+      if (st === "mensal") {
+        const dayWanted = Number(it?.diaMes || 1);
+        if (!dayWanted || dayWanted < 1 || dayWanted > 31) return null;
+
+        const from = addDays(startOfDay(base), 1);
+
+        for (let mAdd = 0; mAdd <= 36; mAdd++) {
+          const monthDate = new Date(from.getFullYear(), from.getMonth() + mAdd, 1);
+          const y = monthDate.getFullYear();
+          const m = monthDate.getMonth();
+
+          const dClamped = clampDayToMonth(y, m, dayWanted);
+          const candDay = new Date(y, m, dClamped);
+          const cand = makeDateAtTime(candDay, timeHHmm);
+
+          if (cand.getTime() < from.getTime()) continue;
+          return cand;
+        }
+        return null;
+      }
+
+      // ✅ Aniversário (anual): próximo ano após o vencimento atual
+      if (st === "aniversario") {
+        const baseYMD = it?.dataBaseYMD || "";
+        const baseDate = parseYMD(baseYMD);
+        if (!baseDate) return null;
+
+        const from = addDays(startOfDay(base), 1);
+
+        const month = baseDate.getMonth();
+        const day = baseDate.getDate();
+
+        for (let add = 0; add <= 10; add++) {
+          const year = from.getFullYear() + add;
+          const dayClamped = clampDayToMonth(year, month, day);
+          const candDay = new Date(year, month, dayClamped);
+          const cand = makeDateAtTime(candDay, timeHHmm);
+
+          if (cand.getTime() < from.getTime()) continue;
+          return cand;
+        }
+        return null;
+      }
+
+      // ✅ Datas fixas: próxima data da lista após o vencimento atual
+      if (st === "personalizado") {
+        const listDates = Array.isArray(it?.datasFixas) ? it.datasFixas.slice().sort() : [];
+        if (!listDates.length) return null;
+
+        const from = addDays(startOfDay(base), 1);
+        const fromKey = toYMD(from);
+
+        for (const ymd of listDates) {
+          if (ymd < fromKey) continue;
+          const d0 = parseYMD(ymd);
+          if (!d0) continue;
+          const cand = makeDateAtTime(d0, timeHHmm);
+          if (cand.getTime() < from.getTime()) continue;
+          return cand;
+        }
+        return null;
+      }
+
+      // fallback: trata como intervalo
+      const intervalDays = unitToDays(it?.unit || "dias", it?.every || 1);
+      const anchorDay = startOfDay(base);
       const nextBase = addDays(anchorDay, intervalDays);
-      from = makeDateAtTime(nextBase, timeHHmm);
-    } else {
-      from = addDays(startOfDay(baseDue), 1);
+      return makeDateAtTime(nextBase, timeHHmm);
     }
 
-    const computed = computeNextDueWithConflict(item, from, fullList, item.id);
-    return computed;
+    // ✅ aplica conflito (allow / shift / block) sem depender de Date.now()
+    let base = new Date(baseDue);
+    if (Number.isNaN(base.getTime())) base = new Date();
+
+    for (let guard = 0; guard < 520; guard++) {
+      const cand = computeNextOccurrenceStrict(item, base);
+      if (!cand) return null;
+
+      const key = toLocalDateKey(cand);
+      const conflict = hasDateConflict(fullList, key, item.id);
+
+      if (!conflict) return cand;
+
+      if (block) return { __conflict: true, dateKey: key, cand };
+
+      if (!noSameDayShift) return cand;
+
+      base = addDays(startOfDay(cand), 1);
+    }
+
+    return null;
   }
 
   // ✅ Recorrentes: quando vence, notifica e gira o próximo certinho
@@ -724,7 +829,7 @@ export default function LembretesPage() {
 
       showTopBarNotification("📌 Lembrete do dia", `${item.titulo} hoje`);
 
-      // ✅ gira a partir do vencimento atual
+      // ✅ gira a partir do vencimento atual (mesma regra do clique)
       const computed = computeNextFromCurrentDue(item, list);
       if (computed && computed.__conflict) return item;
       if (!computed || !computed.toISOString) return item;
@@ -801,9 +906,7 @@ export default function LembretesPage() {
         updatedAt: nowISO(),
       };
 
-      const next = [item, ...list].sort((a, b) =>
-        String(a.quando || "").localeCompare(String(b.quando || ""))
-      );
+      const next = [item, ...list].sort((a, b) => String(a.quando || "").localeCompare(String(b.quando || "")));
       save(next);
 
       scheduleNotificationAt(item.titulo, dt, item.titulo);
@@ -826,8 +929,7 @@ export default function LembretesPage() {
       if (!d || d < 1 || d > 31) return toastMsg("Dia do mês inválido (1 a 31).");
     }
     if (scheduleType === "aniversario") {
-      if (!dataBaseYMD || !parseYMD(dataBaseYMD))
-        return toastMsg("Informe a data do aniversário (YYYY-MM-DD).");
+      if (!dataBaseYMD || !parseYMD(dataBaseYMD)) return toastMsg("Informe a data do aniversário (YYYY-MM-DD).");
     }
     if (scheduleType === "personalizado") {
       const arr = parseFixedDatesList(datasFixasText);
@@ -927,7 +1029,6 @@ export default function LembretesPage() {
       if (i.id !== id) return i;
       if (i.tipo !== "recorrente") return i;
 
-      // ✅ gira a partir do vencimento atual (agora soma dias/semanas corretamente)
       const computed = computeNextFromCurrentDue(i, list);
 
       if (computed && computed.__conflict) {
@@ -1034,9 +1135,7 @@ export default function LembretesPage() {
     setEditingDiaMes(String(item.diaMes || 5));
     setEditingDataBaseYMD(item.dataBaseYMD || "");
     setEditingDatasFixasText(
-      Array.isArray(item.datasFixas) && item.datasFixas.length
-        ? item.datasFixas.join(", ")
-        : "2026-02-05, 2026-03-10"
+      Array.isArray(item.datasFixas) && item.datasFixas.length ? item.datasFixas.join(", ") : "2026-02-05, 2026-03-10"
     );
 
     setEditingScheduleMode(item.scheduleMode || "interval");
@@ -1333,9 +1432,7 @@ export default function LembretesPage() {
             Avulsos + recorrentes (diário, semanal, mensal, aniversário, datas fixas)
           </p>
           <p className="muted small" style={{ marginTop: 6 }}>
-            {user?.uid
-              ? "☁️ Online: sincronizando com sua conta"
-              : "📵 Offline: salvando só no aparelho (faça login para sincronizar)"}
+            {user?.uid ? "☁️ Online: sincronizando com sua conta" : "📵 Offline: salvando só no aparelho (faça login para sincronizar)"}
           </p>
           <p className="muted small" style={{ marginTop: 6 }}>
             🔔 Sem push, o app só consegue garantir agendamento quando ele abre (o sistema pode pausar timers).
