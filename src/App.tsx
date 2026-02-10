@@ -18,7 +18,7 @@ import ReservaPage from "./pages/ReservaPage.jsx";
 // ✅ NOVAS PÁGINAS
 import ListaPage from "./pages/ListaPage.jsx";
 import LembretesPage from "./pages/LembretesPage.jsx";
-import TrabalhoPage from "./pages/TrabalhoPage.jsx";
+import DivisaoCasaPage from "./pages/DivisaoCasaPage.jsx"; // ✅ (TROCA) antes era TrabalhoPage
 import ReceitasPage from "./pages/ReceitasPage.jsx";
 
 // 🔐 Firebase (login Google + banco de dados)
@@ -91,19 +91,22 @@ function parseDiaPagamentoToRule(diaPagamentoRaw) {
   if (s.includes("dia util") || s.includes("dia útil")) {
     const m = s.match(/(\d+)/);
     const n = m ? Number(m[1]) : NaN;
-    if (Number.isFinite(n) && n >= 1 && n <= 31) return { kind: "businessDay", n };
+    if (Number.isFinite(n) && n >= 1 && n <= 31)
+      return { kind: "businessDay", n };
   }
 
   // ✅ (NOVO) Se você digitar só "5" ou "9" ou "10", entende como DIA ÚTIL
   if (/^\d{1,2}$/.test(s)) {
     const n = Number(s);
-    if (Number.isFinite(n) && n >= 1 && n <= 31) return { kind: "businessDay", n };
+    if (Number.isFinite(n) && n >= 1 && n <= 31)
+      return { kind: "businessDay", n };
   }
 
   // Ex.: "dia 10" (aqui continua sendo DIA DO MÊS, caso você queira fixo)
   const m2 = s.match(/\bdia\s+(\d{1,2})\b/);
   const day = m2 ? Number(m2[1]) : NaN;
-  if (Number.isFinite(day) && day >= 1 && day <= 31) return { kind: "dayOfMonth", day };
+  if (Number.isFinite(day) && day >= 1 && day <= 31)
+    return { kind: "dayOfMonth", day };
 
   return null;
 }
@@ -304,7 +307,7 @@ export default function App() {
       { key: "lista", label: "🛒 Lista" },
       { key: "lembretes", label: "⏰ Lembretes" },
       { key: "receitas", label: "🍳 Receitas" },
-      { key: "trabalho", label: "🏠 Casa" },
+      { key: "trabalho", label: "🏠 Casa" }, // ✅ label já estava certo
     ],
     []
   );
@@ -723,8 +726,11 @@ export default function App() {
     case "receitas":
       pagina = <ReceitasPage />;
       break;
+
+    // ✅ (TROCA) a aba "trabalho" agora abre a página da CASA
+    // ✅ Mantive a key "trabalho" para não quebrar seu menu/atalhos existentes.
     case "trabalho":
-      pagina = <TrabalhoPage />;
+      pagina = <DivisaoCasaPage />;
       break;
 
     case "reserva":
