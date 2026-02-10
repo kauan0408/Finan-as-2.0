@@ -1,1117 +1,721 @@
-// src/pages/TrabalhoPage.jsx
+// ✅ Arquivo: src/pages/DivisaoCasaPage.jsx
+// ✅ Divisão de Gastos da Casa (1 a 5 pessoas) + PDF com assinaturas
+// ✅ Offline-first: salva no localStorage
+// ✅ Requer: npm i jspdf jspdf-autotable
+
 import React, { useEffect, useMemo, useState } from "react";
 import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 
-const LS_KEY = "pwa_trabalho_v8"; // versão nova
-const DEFAULT_META_DIA_MIN = 8 * 60; // 8h
+const LS_KEY = "pwa_divisao_casa_v1";
 
-/**
- * Estrutura por dia: YYYY-MM-DD
- * {
- *   date: "YYYY-MM-DD",
- *   tipo: "trabalho" | "folga" | "interjornada",
- *   entradas: [{ in: "HH:MM", out: "HH:MM", kind?: "work" | "break" }],
- *   finalized: boolean,
- *   interjornadaMin: number | null,
- * }
- *
- * Config:
- * {
- *   metaDiaMin: number,
- *   exigirConfirmacao: boolean,
- *   pinAtivo: boolean,
- *   pinHash: string | null,
- * }
- */
+const SUGESTOES_GASTOS = [
+  "Aluguel",
+  "Condomínio",
+  "IPTU (rateado)",
+  "Água",
+  "Luz",
+  "Gás (encanado)",
+  "Gás (botijão)",
+  "Internet",
+  "TV",
+  "Telefone",
+  "Taxa de lixo",
+  "Esgoto",
+  "Seguro residencial",
+  "Diarista / Limpeza",
+  "Materiais de limpeza",
+  "Assinaturas compartilhadas (streaming)",
+  "Compra do mês (itens comuns)",
+  "Fundo de reserva da casa",
+  "Pequenos reparos / Manutenção",
+  "Dedetização",
+  "Outros",
+];
 
-export default function TrabalhoPage() {
-  const [map, setMap] = useState({});
-  const [config, setConfig] = useState({
-    metaDiaMin: DEFAULT_META_DIA_MIN,
-    exigirConfirmacao: true, // pede biometria/pin para marcar
-    pinAtivo: false,
-    pinHash: null,
-  });
+function safeJSONParse(v, fallback) {
+  try {
+    return JSON.parse(v);
+  } catch {
+    return fallback;
+  }
+}
 
-  const [dia, setDia] = useState(today());
-  const [tipo, setTipo] = useState("trabalho");
+function uuid() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
+  return "id_" + Math.random().toString(16).slice(2) + Date.now().toString(16);
+}
 
-  // período manual
-  const [entrada, setEntrada] = useState("");
-  const [saida, setSaida] = useState("");
+function formatBRL(value) {
+  const n = Number(value || 0);
+  return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
 
-  // interjornada
-  const [interHoras, setInterHoras] = useState("11:00");
+function clamp(n, a, b) {
+  const v = Number(n);
+  if (Number.isNaN(v)) return a;
+  return Math.min(b, Math.max(a, v));
+}
 
-  // PDF
-  const [de, setDe] = useState(today());
-  const [ate, setAte] = useState(today());
-  const [pdfIncluirPeriodos, setPdfIncluirPeriodos] = useState(true);
+function monthNowYYYYMM() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  return `${y}-${m}`;
+}
 
-  // fluxo de marcação estilo “máquina”
-  // estado do “relógio” do dia: idle | working | onBreak
-  const [clockState, setClockState] = useState("idle"); // UI only
-  const [runningIn, setRunningIn] = useState(""); // UI only
+function monthLabel(yyyy_mm) {
+  const [y, m] = String(yyyy_mm || "").split("-");
+  if (!y || !m) return "-";
+  return `${m}/${y}`;
+}
 
-  // PIN (fallback)
-  const [pinModal, setPinModal] = useState(false);
-  const [pinInput, setPinInput] = useState("");
-  const [pinPurpose, setPinPurpose] = useState(""); // "confirm" | "set"
-  const [pinError, setPinError] = useState("");
+function fmtBRDate(yyyy_mm_dd) {
+  if (!yyyy_mm_dd) return "-";
+  const [y, m, d] = String(yyyy_mm_dd).split("-");
+  if (!y || !m || !d) return "-";
+  return `${d}/${m}/${y}`;
+}
 
-  // -------------------- load/save --------------------
+function normalizeName(s) {
+  return String(s || "").trim();
+}
+
+export default function DivisaoCasaPage() {
+  // ----- estado principal -----
+  const [state, setState] = useState(() => ({
+    casaNome: "Gastos da Casa",
+    mesRef: monthNowYYYYMM(), // YYYY-MM
+    modoDivisao: "igual", // "igual" | "percentual"
+    moradoresCount: 2, // 1..5
+    moradores: [
+      { id: uuid(), nome: "Morador 1", percentual: 50 },
+      { id: uuid(), nome: "Morador 2", percentual: 50 },
+    ],
+    itens: [
+      // exemplo vazio
+      // { id, nome, valor, vencimento, responsavel, observacao }
+    ],
+  }));
+
+  // formulário item
+  const [itemNome, setItemNome] = useState("");
+  const [itemValor, setItemValor] = useState("");
+  const [itemVencimento, setItemVencimento] = useState("");
+  const [itemResponsavel, setItemResponsavel] = useState("");
+  const [itemObs, setItemObs] = useState("");
+
+  // edição
+  const [editId, setEditId] = useState(null);
+
+  // PDF opções
+  const [pdfIncluirObs, setPdfIncluirObs] = useState(true);
+  const [pdfIncluirVenc, setPdfIncluirVenc] = useState(true);
+
+  // ----- load/save -----
   useEffect(() => {
-    try {
-      const raw = JSON.parse(localStorage.getItem(LS_KEY) || "{}");
-      setMap(raw?.map || {});
-      setConfig(raw?.config || {
-        metaDiaMin: DEFAULT_META_DIA_MIN,
-        exigirConfirmacao: true,
-        pinAtivo: false,
-        pinHash: null,
-      });
-    } catch {}
+    const raw = safeJSONParse(localStorage.getItem(LS_KEY), null);
+    if (raw && typeof raw === "object") {
+      // merge com defaults para evitar quebra em versões antigas
+      setState((prev) => ({
+        ...prev,
+        ...raw,
+        moradoresCount: clamp(raw?.moradoresCount ?? prev.moradoresCount, 1, 5),
+        moradores: Array.isArray(raw?.moradores) ? raw.moradores : prev.moradores,
+        itens: Array.isArray(raw?.itens) ? raw.itens : prev.itens,
+      }));
+    }
+    // eslint-disable-next-line
   }, []);
 
-  function persist(nextMap, nextConfig = config) {
-    setMap(nextMap);
-    setConfig(nextConfig);
-    localStorage.setItem(LS_KEY, JSON.stringify({ map: nextMap, config: nextConfig }));
+  function persist(next) {
+    setState(next);
+    localStorage.setItem(LS_KEY, JSON.stringify(next));
   }
 
-  // -------------------- dayData --------------------
-  const dayData = map[dia] || {
-    date: dia,
-    tipo: "trabalho",
-    entradas: [],
-    finalized: false,
-    interjornadaMin: null,
-  };
+  // ----- derivadas -----
+  const moradores = useMemo(() => {
+    const c = clamp(state.moradoresCount, 1, 5);
 
-  useEffect(() => {
-    setTipo(dayData.tipo || "trabalho");
+    // garante tamanho exato
+    let arr = Array.isArray(state.moradores) ? [...state.moradores] : [];
+    // normaliza nomes
+    arr = arr.map((m, idx) => ({
+      id: m?.id || uuid(),
+      nome: normalizeName(m?.nome) || `Morador ${idx + 1}`,
+      percentual: Number(m?.percentual ?? 0),
+    }));
 
-    // se interjornada: set input
-    if ((dayData.tipo || "trabalho") === "interjornada") {
-      const min = typeof dayData.interjornadaMin === "number" ? dayData.interjornadaMin : 11 * 60;
-      setInterHoras(minToHHMM(min));
+    if (arr.length < c) {
+      const start = arr.length;
+      for (let i = start; i < c; i++) {
+        arr.push({
+          id: uuid(),
+          nome: `Morador ${i + 1}`,
+          percentual: c > 0 ? Math.round((100 / c) * 100) / 100 : 0,
+        });
+      }
+    }
+    if (arr.length > c) arr = arr.slice(0, c);
+
+    return arr;
+  }, [state.moradores, state.moradoresCount]);
+
+  const itens = useMemo(() => (Array.isArray(state.itens) ? state.itens : []), [state.itens]);
+
+  const totalGeral = useMemo(() => {
+    return itens.reduce((acc, it) => acc + Number(it?.valor || 0), 0);
+  }, [itens]);
+
+  const percentuais = useMemo(() => {
+    const modo = state.modoDivisao;
+
+    if (modo === "igual") {
+      const c = moradores.length || 1;
+      return moradores.map(() => 100 / c);
     }
 
-    // reconstroi clockState pelo último registro (para UI)
-    const rebuilt = rebuildClockState(dayData);
-    setClockState(rebuilt.clockState);
-    setRunningIn(rebuilt.runningIn);
-    // eslint-disable-next-line
-  }, [dia]);
+    // percentual
+    // se soma != 100, a gente ainda calcula proporcionalmente (mas avisa na tela)
+    const raw = moradores.map((m) => Number(m?.percentual || 0));
+    const sum = raw.reduce((a, b) => a + b, 0);
 
-  const isTrabalho = (dayData.tipo || "trabalho") === "trabalho";
-  const isFolga = dayData.tipo === "folga";
-  const isInterjornada = dayData.tipo === "interjornada";
-  const isFinalized = !!dayData.finalized;
+    if (sum <= 0) {
+      // fallback: igual
+      const c = moradores.length || 1;
+      return moradores.map(() => 100 / c);
+    }
 
-  // -------------------- cálculos --------------------
-  const totalTrabalhoMin = useMemo(() => calcTotalWorkMin(dayData.entradas || []), [dayData]);
-  const metaDiaMin = Number(config?.metaDiaMin || DEFAULT_META_DIA_MIN);
+    // normaliza para 100%
+    return raw.map((p) => (p / sum) * 100);
+  }, [state.modoDivisao, moradores]);
 
-  const saldoDiaMin = useMemo(() => {
-    if (!isTrabalho) return 0;
-    return totalTrabalhoMin - metaDiaMin; // negativo = devendo
-  }, [isTrabalho, totalTrabalhoMin, metaDiaMin]);
+  const somaPercentuaisDigitados = useMemo(() => {
+    return moradores.reduce((acc, m) => acc + Number(m?.percentual || 0), 0);
+  }, [moradores]);
 
-  const faltaDiaMin = Math.max(0, metaDiaMin - totalTrabalhoMin);
-  const atingiuMeta = totalTrabalhoMin >= metaDiaMin;
+  const valorPorPessoa = useMemo(() => {
+    return moradores.map((_, idx) => (totalGeral * (percentuais[idx] || 0)) / 100);
+  }, [moradores, totalGeral, percentuais]);
 
-  // saldo do mês (banco pessoal)
-  const { mesLabel, saldoMesMin, totalMesTrabalhoMin, diasTrabalhoNoMes } = useMemo(() => {
-    const { y, m } = parseYMD(dia);
-    const start = `${y}-${String(m).padStart(2, "0")}-01`;
-    const end = lastDayOfMonthYMD(y, m);
+  // ----- handlers básicos -----
+  function setCasaNome(v) {
+    persist({ ...state, casaNome: String(v || "") });
+  }
 
-    const rows = buildRangeRows(map, start, end, metaDiaMin);
-    const onlyWork = rows.filter((r) => r.tipoRaw === "trabalho");
+  function setMesRef(v) {
+    persist({ ...state, mesRef: String(v || "") });
+  }
 
-    const totalMes = onlyWork.reduce((acc, r) => acc + r.totalMin, 0);
-    const saldoMes = onlyWork.reduce((acc, r) => acc + r.saldoMin, 0);
+  function setMoradoresCount(v) {
+    const c = clamp(v, 1, 5);
+    const nextMoradores = (() => {
+      let arr = [...moradores];
+      if (arr.length < c) {
+        for (let i = arr.length; i < c; i++) {
+          arr.push({
+            id: uuid(),
+            nome: `Morador ${i + 1}`,
+            percentual: c > 0 ? Math.round((100 / c) * 100) / 100 : 0,
+          });
+        }
+      }
+      if (arr.length > c) arr = arr.slice(0, c);
 
-    return {
-      mesLabel: `${String(m).padStart(2, "0")}/${y}`,
-      saldoMesMin: saldoMes,
-      totalMesTrabalhoMin: totalMes,
-      diasTrabalhoNoMes: onlyWork.length,
+      // se estiver em modo igual, reequilibra percentuais só pra “ficar bonito” no UI
+      if (state.modoDivisao === "igual") {
+        const eq = c > 0 ? 100 / c : 0;
+        arr = arr.map((m) => ({ ...m, percentual: eq }));
+      }
+
+      return arr;
+    })();
+
+    persist({
+      ...state,
+      moradoresCount: c,
+      moradores: nextMoradores,
+    });
+  }
+
+  function setModoDivisao(v) {
+    const modo = v === "percentual" ? "percentual" : "igual";
+    const c = moradores.length || 1;
+
+    let nextMoradores = [...moradores];
+    if (modo === "igual") {
+      const eq = 100 / c;
+      nextMoradores = nextMoradores.map((m) => ({ ...m, percentual: eq }));
+    } else {
+      // deixa como está; se estiver zerado, sugere igual
+      const sum = nextMoradores.reduce((acc, m) => acc + Number(m.percentual || 0), 0);
+      if (sum <= 0) {
+        const eq = 100 / c;
+        nextMoradores = nextMoradores.map((m) => ({ ...m, percentual: eq }));
+      }
+    }
+
+    persist({ ...state, modoDivisao: modo, moradores: nextMoradores });
+  }
+
+  function setMoradorNome(idx, nome) {
+    const next = [...moradores];
+    next[idx] = { ...next[idx], nome: normalizeName(nome) };
+    persist({ ...state, moradores: next });
+  }
+
+  function setMoradorPercentual(idx, p) {
+    const next = [...moradores];
+    const val = Number(String(p || "").replace(",", "."));
+    next[idx] = { ...next[idx], percentual: Number.isFinite(val) ? val : 0 };
+    persist({ ...state, moradores: next });
+  }
+
+  function resetForm() {
+    setItemNome("");
+    setItemValor("");
+    setItemVencimento("");
+    setItemResponsavel("");
+    setItemObs("");
+    setEditId(null);
+  }
+
+  function startEdit(it) {
+    setEditId(it.id);
+    setItemNome(it.nome || "");
+    setItemValor(String(it.valor ?? ""));
+    setItemVencimento(it.vencimento || "");
+    setItemResponsavel(it.responsavel || "");
+    setItemObs(it.observacao || "");
+  }
+
+  function removeItem(id) {
+    const nextItens = itens.filter((it) => it.id !== id);
+    persist({ ...state, itens: nextItens });
+    if (editId === id) resetForm();
+  }
+
+  function upsertItem() {
+    const nome = String(itemNome || "").trim();
+    const valor = Number(String(itemValor || "").replace(",", "."));
+    const venc = String(itemVencimento || "").trim();
+    const resp = String(itemResponsavel || "").trim();
+    const obs = String(itemObs || "").trim();
+
+    if (!nome) {
+      alert("Digite o nome do gasto (ex.: Água).");
+      return;
+    }
+    if (!Number.isFinite(valor) || valor < 0) {
+      alert("Digite um valor válido (ex.: 120.50).");
+      return;
+    }
+
+    const payload = {
+      id: editId || uuid(),
+      nome,
+      valor,
+      vencimento: venc,
+      responsavel: resp,
+      observacao: obs,
     };
-  }, [map, dia, metaDiaMin]);
 
-  // -------------------- helpers de map --------------------
-  function ensureDay(nextMap, key) {
-    const cur = nextMap[key];
-    if (cur) return cur;
+    const nextItens = editId
+      ? itens.map((it) => (it.id === editId ? payload : it))
+      : [...itens, payload];
+
+    persist({ ...state, itens: nextItens });
+    resetForm();
+  }
+
+  function limparTudo() {
+    const ok = window.confirm("Tem certeza que deseja apagar todos os dados desta divisão?");
+    if (!ok) return;
     const fresh = {
-      date: key,
-      tipo: "trabalho",
-      entradas: [],
-      finalized: false,
-      interjornadaMin: null,
+      casaNome: "Gastos da Casa",
+      mesRef: monthNowYYYYMM(),
+      modoDivisao: "igual",
+      moradoresCount: 2,
+      moradores: [
+        { id: uuid(), nome: "Morador 1", percentual: 50 },
+        { id: uuid(), nome: "Morador 2", percentual: 50 },
+      ],
+      itens: [],
     };
-    nextMap[key] = fresh;
-    return fresh;
+    persist(fresh);
+    resetForm();
   }
 
-  function setDayTipo(v) {
-    const next = { ...map };
-    const cur = ensureDay(next, dia);
-    const updated = { ...cur, tipo: v };
-
-    if (v === "folga") {
-      updated.entradas = [];
-      updated.finalized = true;
-      updated.interjornadaMin = null;
-    }
-
-    if (v === "interjornada") {
-      const min = typeof updated.interjornadaMin === "number" ? updated.interjornadaMin : 11 * 60;
-      updated.entradas = [];
-      updated.finalized = true;
-      updated.interjornadaMin = min;
-      setInterHoras(minToHHMM(min));
-    }
-
-    if (v === "trabalho") {
-      updated.finalized = updated.finalized || false;
-      updated.interjornadaMin = null;
-      // mantém entradas
-    }
-
-    next[dia] = updated;
-    persist(next);
-    setTipo(v);
-
-    const rebuilt = rebuildClockState(updated);
-    setClockState(rebuilt.clockState);
-    setRunningIn(rebuilt.runningIn);
-  }
-
-  function salvarInterjornadaHoras() {
-    if (!isInterjornada) return;
-
-    const min = toMin(interHoras);
-    if (min == null) return;
-
-    const next = { ...map };
-    const cur = ensureDay(next, dia);
-
-    next[dia] = {
-      ...cur,
-      tipo: "interjornada",
-      interjornadaMin: min,
-      entradas: [],
-      finalized: true,
-    };
-    persist(next);
-  }
-
-  // -------------------- segurança (biometria/pin) --------------------
-  async function requireConfirm() {
-    if (!config.exigirConfirmacao) return true;
-
-    // 1) tenta WebAuthn/biometria do sistema (quando existe)
-    const okBio = await tryBiometricAuth();
-    if (okBio) return true;
-
-    // 2) se pin está ativo, pede pin
-    if (config.pinAtivo && config.pinHash) {
-      setPinPurpose("confirm");
-      setPinInput("");
-      setPinError("");
-      setPinModal(true);
-      return false; // vai continuar após confirmar no modal
-    }
-
-    // 3) se não tem pin, deixa passar (pra não travar seu uso)
-    return true;
-  }
-
-  async function tryBiometricAuth() {
-    // WebAuthn depende de HTTPS + suporte do navegador
-    // Aqui fazemos um "get" com allowCredentials vazio -> geralmente não funciona sozinho
-    // então usamos um "check" básico: se existir e o navegador permitir, tentamos.
-    try {
-      if (!window.PublicKeyCredential || !navigator.credentials) return false;
-      // Muitos navegadores exigem credenciais previamente registradas.
-      // Sem cadastro, a autenticação não acontece. Então retornamos false.
-      return false;
-    } catch {
-      return false;
-    }
-  }
-
-  async function handlePinConfirm() {
-    const input = String(pinInput || "").trim();
-    if (!input) {
-      setPinError("Digite seu PIN.");
-      return;
-    }
-
-    if (pinPurpose === "set") {
-      const h = await sha256(input);
-      const nextConfig = { ...config, pinAtivo: true, pinHash: h };
-      persist(map, nextConfig);
-      setPinModal(false);
-      setPinInput("");
-      setPinError("");
-      return;
-    }
-
-    if (pinPurpose === "confirm") {
-      const h = await sha256(input);
-      if (h !== config.pinHash) {
-        setPinError("PIN incorreto.");
-        return;
-      }
-      setPinModal(false);
-      setPinInput("");
-      setPinError("");
-      // depois de confirmar, executa a ação pendente (a gente chama via callback simples)
-      if (pendingActionRef.current) {
-        const fn = pendingActionRef.current;
-        pendingActionRef.current = null;
-        fn();
-      }
-    }
-  }
-
-  function disablePin() {
-    const nextConfig = { ...config, pinAtivo: false, pinHash: null };
-    persist(map, nextConfig);
-  }
-
-  // Guardar ação pendente (quando exige pin)
-  const pendingActionRef = React.useRef(null);
-
-  // -------------------- marcação estilo “máquina” --------------------
-  // Regras:
-  // - Entrada: inicia trabalho
-  // - Intervalo: fecha um período de trabalho e inicia "break"
-  // - Voltar: fecha o break e inicia novo período de trabalho
-  // - Saída: fecha o período de trabalho (se estiver trabalhando) e finaliza (opcional)
-  // Obs: break é opcional no cálculo (não soma como trabalho). Só registra por clareza.
-  async function marcarEntrada() {
-    if (!isTrabalho || isFinalized) return;
-
-    const ok = await requireConfirm();
-    if (!ok) {
-      pendingActionRef.current = marcarEntrada;
-      return;
-    }
-
-    const now = nowHHMM();
-    // só permite se estiver idle
-    if (clockState !== "idle") return;
-
-    setClockState("working");
-    setRunningIn(now);
-  }
-
-  async function marcarIntervalo() {
-    if (!isTrabalho || isFinalized) return;
-
-    const ok = await requireConfirm();
-    if (!ok) {
-      pendingActionRef.current = marcarIntervalo;
-      return;
-    }
-
-    const now = nowHHMM();
-
-    if (clockState !== "working" || !runningIn) return;
-
-    const next = { ...map };
-    const cur = ensureDay(next, dia);
-
-    // salva período de trabalho
-    const a = toMin(runningIn);
-    const b = toMin(now);
-    if (a != null && b != null && b > a) {
-      const entradas = [...(cur.entradas || []), { in: runningIn, out: now, kind: "work" }];
-      next[dia] = { ...cur, tipo: "trabalho", entradas };
-      persist(next);
-    }
-
-    // inicia break (UI)
-    setClockState("onBreak");
-    setRunningIn(now);
-  }
-
-  async function marcarVolta() {
-    if (!isTrabalho || isFinalized) return;
-
-    const ok = await requireConfirm();
-    if (!ok) {
-      pendingActionRef.current = marcarVolta;
-      return;
-    }
-
-    const now = nowHHMM();
-
-    if (clockState !== "onBreak" || !runningIn) return;
-
-    const next = { ...map };
-    const cur = ensureDay(next, dia);
-
-    // registra o intervalo como "break" (não entra no cálculo de trabalho)
-    const a = toMin(runningIn);
-    const b = toMin(now);
-    if (a != null && b != null && b > a) {
-      const entradas = [...(cur.entradas || []), { in: runningIn, out: now, kind: "break" }];
-      next[dia] = { ...cur, tipo: "trabalho", entradas };
-      persist(next);
-    }
-
-    // volta ao trabalho (UI)
-    setClockState("working");
-    setRunningIn(now);
-  }
-
-  async function marcarSaida() {
-    if (!isTrabalho || isFinalized) return;
-
-    const ok = await requireConfirm();
-    if (!ok) {
-      pendingActionRef.current = marcarSaida;
-      return;
-    }
-
-    const now = nowHHMM();
-
-    // se estava trabalhando, fecha período
-    if (clockState === "working" && runningIn) {
-      const next = { ...map };
-      const cur = ensureDay(next, dia);
-
-      const a = toMin(runningIn);
-      const b = toMin(now);
-      if (a != null && b != null && b > a) {
-        const entradas = [...(cur.entradas || []), { in: runningIn, out: now, kind: "work" }];
-        next[dia] = { ...cur, tipo: "trabalho", entradas };
-        persist(next);
-      }
-    }
-
-    // se estava em break, fecha break (opcional) e finaliza
-    if (clockState === "onBreak" && runningIn) {
-      const next = { ...map };
-      const cur = ensureDay(next, dia);
-
-      const a = toMin(runningIn);
-      const b = toMin(now);
-      if (a != null && b != null && b > a) {
-        const entradas = [...(cur.entradas || []), { in: runningIn, out: now, kind: "break" }];
-        next[dia] = { ...cur, tipo: "trabalho", entradas };
-        persist(next);
-      }
-    }
-
-    // volta UI para idle
-    setClockState("idle");
-    setRunningIn("");
-  }
-
-  function finalizarDia() {
-    if (!isTrabalho) return;
-
-    const next = { ...map };
-    const cur = ensureDay(next, dia);
-
-    // Não mexe no clockState aqui, só trava edições
-    next[dia] = { ...cur, finalized: true };
-    persist(next);
-  }
-
-  function reabrirDia() {
-    if (!isTrabalho) return;
-    const next = { ...map };
-    const cur = ensureDay(next, dia);
-    next[dia] = { ...cur, finalized: false };
-    persist(next);
-  }
-
-  // -------------------- manual (entrada/saida) --------------------
-  function addPeriodoManual() {
-    if (!isTrabalho || isFinalized) return;
-    if (!entrada || !saida) return;
-
-    const a = toMin(entrada);
-    const b = toMin(saida);
-    if (a == null || b == null || b <= a) {
-      alert("Horário inválido: a saída deve ser maior que a entrada.");
-      return;
-    }
-
-    const next = { ...map };
-    const cur = ensureDay(next, dia);
-
-    const entradas = [...(cur.entradas || []), { in: entrada, out: saida, kind: "work" }];
-    next[dia] = { ...cur, tipo: "trabalho", entradas };
-    persist(next);
-
-    setEntrada("");
-    setSaida("");
-  }
-
-  function removePeriodo(idx) {
-    if (!isTrabalho || isFinalized) return;
-
-    const next = { ...map };
-    const cur = ensureDay(next, dia);
-
-    const entradas = (cur.entradas || []).filter((_, i) => i !== idx);
-    next[dia] = { ...cur, entradas };
-    persist(next);
-  }
-
-  // -------------------- config --------------------
-  function setMetaDiaHoras(hhmm) {
-    const min = toMin(hhmm);
-    if (min == null) return;
-    const nextConfig = { ...config, metaDiaMin: min };
-    persist(map, nextConfig);
-  }
-
-  function toggleExigirConfirmacao(v) {
-    const nextConfig = { ...config, exigirConfirmacao: v };
-    persist(map, nextConfig);
-  }
-
-  function abrirSetPin() {
-    setPinPurpose("set");
-    setPinInput("");
-    setPinError("");
-    setPinModal(true);
-  }
-
-  // -------------------- PDF --------------------
-  function exportPDF() {
-    const rows = buildRangeRows(map, de, ate, metaDiaMin);
-
-    const diasTrabalho = rows.filter((r) => r.tipo === "Trabalho").length;
-    const diasFolga = rows.filter((r) => r.tipo === "Folga").length;
-    const diasInter = rows.filter((r) => r.tipo === "Interjornada").length;
-    const diasSem = rows.filter((r) => r.tipo === "Sem registro").length;
-
-    const totalTrabalho = rows.reduce((acc, r) => acc + (r.totalMin || 0), 0);
-    const saldoTotal = rows.reduce((acc, r) => acc + (r.saldoMin || 0), 0);
-    const totalInter = rows.reduce((acc, r) => acc + (r.interMin || 0), 0);
-
-    const doc = new jsPDF();
-
+  // ----- PDF -----
+  function gerarPDF() {
+    const doc = new jsPDF({ unit: "pt", format: "a4" });
+
+    const titulo = "DIVISÃO DE GASTOS DA CASA";
+    const sub = `${state.casaNome || "Gastos da Casa"} — Mês: ${monthLabel(state.mesRef)}`;
+
+    // Cabeçalho
+    doc.setFont("helvetica", "bold");
     doc.setFontSize(14);
-    doc.text("RELATORIO DE PONTO (PESSOAL)", 14, 16);
+    doc.text(titulo, 40, 50);
 
-    doc.setFontSize(10);
-    doc.text(`Periodo: ${fmtBR(de)} a ${fmtBR(ate)}`, 14, 24);
-    doc.text(`Meta diaria: ${minToHHMM(metaDiaMin)}`, 14, 30);
-    doc.text(`Incluir periodos: ${pdfIncluirPeriodos ? "SIM" : "NAO"}`, 14, 36);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(11);
+    doc.text(sub, 40, 70);
 
-    doc.text(
-      `Resumo: Trabalho ${diasTrabalho} | Folga ${diasFolga} | Interjornada ${diasInter} | Sem registro ${diasSem}`,
-      14,
-      42
-    );
+    // Tabela de gastos
+    const cols = [
+      "Gasto",
+      "Valor",
+      ...(pdfIncluirVenc ? ["Venc."] : []),
+      "Responsável",
+      ...(pdfIncluirObs ? ["Obs."] : []),
+    ];
 
-    let y = 52;
-
-    function drawHeader() {
-      doc.setFontSize(10);
-      doc.text("Data", 14, y);
-      doc.text("Situacao", 40, y);
-      doc.text("Total", 82, y);
-      doc.text("Saldo", 105, y);
-      doc.text("Status", 130, y);
-      if (pdfIncluirPeriodos) doc.text("Periodos", 155, y);
-      y += 6;
-      doc.line(14, y - 4, 196, y - 4);
-    }
-
-    drawHeader();
-
-    rows.forEach((r) => {
-      if (y > 280) {
-        doc.addPage();
-        y = 16;
-        drawHeader();
-      }
-
-      doc.text(r.data, 14, y);
-      doc.text(r.tipo, 40, y);
-      doc.text(r.horas, 82, y);
-      doc.text(r.saldo, 105, y);
-      doc.text(r.status, 130, y);
-
-      if (pdfIncluirPeriodos) {
-        doc.text(cutText(r.periodos, 45), 155, y);
-      }
-
-      y += 6;
+    const body = itens.map((it) => {
+      const row = [
+        String(it.nome || "-"),
+        formatBRL(it.valor || 0),
+        ...(pdfIncluirVenc ? [it.vencimento ? fmtBRDate(it.vencimento) : "-"] : []),
+        String(it.responsavel || "-"),
+        ...(pdfIncluirObs ? [String(it.observacao || "-")] : []),
+      ];
+      return row;
     });
 
-    y += 10;
-    if (y > 275) {
-      doc.addPage();
-      y = 20;
-    }
+    autoTable(doc, {
+      startY: 90,
+      head: [cols],
+      body: body.length ? body : [["(Sem gastos cadastrados)", "", ...(pdfIncluirVenc ? [""] : []), "", ...(pdfIncluirObs ? [""] : [])]],
+      styles: {
+        font: "helvetica",
+        fontSize: 9,
+        cellPadding: 4,
+        overflow: "linebreak",
+      },
+      headStyles: {
+        fontStyle: "bold",
+      },
+      margin: { left: 40, right: 40 },
+    });
 
+    let y = doc.lastAutoTable ? doc.lastAutoTable.finalY + 20 : 120;
+
+    // Resumo
+    doc.setFont("helvetica", "bold");
     doc.setFontSize(12);
-    doc.text("RESUMO DO PERIODO", 14, y);
-    y += 8;
+    doc.text("RESUMO", 40, y);
+    y += 16;
 
-    doc.setFontSize(10);
-    doc.text(`Total de horas trabalhadas: ${minToHHMM(totalTrabalho)}`, 14, y);
-    y += 6;
-    doc.text(`Saldo total (banco pessoal): ${formatSaldoMin(saldoTotal)}`, 14, y);
-    y += 6;
-    doc.text(`Total interjornada: ${minToHHMM(totalInter)}`, 14, y);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(11);
+    doc.text(`Total geral: ${formatBRL(totalGeral)}`, 40, y);
+    y += 14;
 
-    doc.save(`relatorio_ponto_${de}_a_${ate}.pdf`);
+    doc.text(`Modo de divisão: ${state.modoDivisao === "percentual" ? "Percentual" : "Igual"}`, 40, y);
+    y += 18;
+
+    // Quadro por pessoa
+    const head2 = ["Pessoa", "Percentual", "Valor a pagar"];
+    const body2 = moradores.map((m, i) => [
+      m.nome || `Morador ${i + 1}`,
+      `${(percentuais[i] || 0).toFixed(2)}%`,
+      formatBRL(valorPorPessoa[i] || 0),
+    ]);
+
+    autoTable(doc, {
+      startY: y,
+      head: [head2],
+      body: body2,
+      styles: { font: "helvetica", fontSize: 10, cellPadding: 4 },
+      headStyles: { fontStyle: "bold" },
+      margin: { left: 40, right: 40 },
+    });
+
+    y = doc.lastAutoTable ? doc.lastAutoTable.finalY + 24 : y + 80;
+
+    // Assinaturas (linhas)
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    doc.text("ASSINATURAS", 40, y);
+    y += 16;
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(11);
+
+    const pageH = doc.internal.pageSize.getHeight();
+    const lineW = 220;
+
+    moradores.forEach((m, i) => {
+      if (y > pageH - 80) {
+        doc.addPage();
+        y = 60;
+      }
+
+      const nome = m.nome || `Morador ${i + 1}`;
+
+      doc.text(nome, 40, y);
+      y += 10;
+
+      doc.line(40, y, 40 + lineW, y);
+      doc.text("Assinatura", 40 + lineW + 10, y + 4);
+
+      y += 22;
+
+      doc.text("Data:", 40, y);
+      doc.line(80, y + 2, 200, y + 2);
+
+      y += 24;
+    });
+
+    const fileName = `divisao_gastos_${(state.casaNome || "casa").replace(/\s+/g, "_")}_${state.mesRef}.pdf`;
+    doc.save(fileName);
   }
 
-  // -------------------- UI --------------------
+  // ----- UI -----
   return (
     <div className="page">
-      <h2 className="page-title">🕘 Ponto (pessoal)</h2>
+      <h2 className="page-title">🏠 Divisão de Gastos da Casa</h2>
 
-      {/* Config rápido */}
+      {/* Dados da casa */}
       <div className="card">
         <h3 style={{ marginBottom: 8 }}>Configuração</h3>
 
         <div className="field">
-          <label>Meta diária</label>
-          <input
-            type="time"
-            value={minToHHMM(metaDiaMin)}
-            onChange={(e) => setMetaDiaHoras(e.target.value)}
-          />
-          <div className="muted small" style={{ marginTop: 6 }}>
-            Ex.: 08:00 (480 min). Isso é usado para calcular se você está devendo ou com horas extras.
-          </div>
+          <label>Nome da casa</label>
+          <input value={state.casaNome} onChange={(e) => setCasaNome(e.target.value)} placeholder="Ex.: República do Centro" />
         </div>
 
-        <div className="field">
-          <label>Confirmar marcação (biometria / PIN)</label>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <div className="filters-grid">
+          <div className="field">
+            <label>Mês de referência</label>
+            {/* input month é perfeito pra YYYY-MM */}
+            <input type="month" value={state.mesRef} onChange={(e) => setMesRef(e.target.value)} />
+          </div>
+
+          <div className="field">
+            <label>Nº de pessoas (1 a 5)</label>
             <input
-              type="checkbox"
-              checked={!!config.exigirConfirmacao}
-              onChange={(e) => toggleExigirConfirmacao(e.target.checked)}
-              style={{ width: 18, height: 18 }}
+              type="number"
+              min={1}
+              max={5}
+              value={state.moradoresCount}
+              onChange={(e) => setMoradoresCount(e.target.value)}
             />
-            <span className="muted small">Pedir confirmação antes de marcar</span>
           </div>
         </div>
 
         <div className="field">
-          <label>PIN (fallback)</label>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <button
-              type="button"
-              className="primary-btn"
-              style={{ width: "auto", padding: "8px 12px" }}
-              onClick={abrirSetPin}
-            >
-              {config.pinAtivo ? "Trocar PIN" : "Definir PIN"}
-            </button>
-
-            {config.pinAtivo && (
-              <button
-                type="button"
-                className="chip"
-                style={{ width: "auto" }}
-                onClick={disablePin}
-              >
-                Desativar PIN
-              </button>
-            )}
-          </div>
-          <div className="muted small" style={{ marginTop: 6 }}>
-            Se não houver biometria/suporte, o app usa PIN para confirmar marcações.
-          </div>
-        </div>
-      </div>
-
-      {/* Dia */}
-      <div className="card mt">
-        <div className="field">
-          <label>Dia</label>
-          <input type="date" value={dia} onChange={(e) => setDia(e.target.value)} />
-        </div>
-
-        <div className="field">
-          <label>Tipo</label>
-          <select value={tipo} onChange={(e) => setDayTipo(e.target.value)}>
-            <option value="trabalho">Dia normal</option>
-            <option value="folga">Folga</option>
-            <option value="interjornada">Interjornada</option>
+          <label>Modo de divisão</label>
+          <select value={state.modoDivisao} onChange={(e) => setModoDivisao(e.target.value)}>
+            <option value="igual">Igual (divide por partes iguais)</option>
+            <option value="percentual">Percentual (cada um paga uma %)</option>
           </select>
+
+          {state.modoDivisao === "percentual" && (
+            <div className="muted small" style={{ marginTop: 6 }}>
+              Soma digitada (não precisa dar 100, o app normaliza): <b>{somaPercentuaisDigitados.toFixed(2)}%</b>
+            </div>
+          )}
         </div>
+      </div>
 
-        {/* Interjornada */}
-        {isInterjornada && (
-          <div className="audio-card" style={{ padding: 12 }}>
+      {/* Moradores */}
+      <div className="card mt">
+        <h3 style={{ marginBottom: 8 }}>Pessoas</h3>
+
+        {moradores.map((m, idx) => (
+          <div key={m.id} className="audio-card" style={{ padding: 12, marginBottom: 10 }}>
+            <div className="filters-grid">
+              <div className="field">
+                <label>Nome</label>
+                <input value={m.nome} onChange={(e) => setMoradorNome(idx, e.target.value)} placeholder={`Morador ${idx + 1}`} />
+              </div>
+
+              <div className="field">
+                <label>% (se percentual)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  disabled={state.modoDivisao !== "percentual"}
+                  value={Number(m.percentual || 0)}
+                  onChange={(e) => setMoradorPercentual(idx, e.target.value)}
+                />
+              </div>
+            </div>
+
             <div className="muted small">
-              <b>Interjornada do dia</b> (ex.: 11:00)
-            </div>
-
-            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-              <input
-                type="time"
-                value={interHoras}
-                onChange={(e) => setInterHoras(e.target.value)}
-                style={{ flex: 1 }}
-              />
-              <button
-                type="button"
-                className="primary-btn"
-                style={{ width: "auto", padding: "8px 12px" }}
-                onClick={salvarInterjornadaHoras}
-              >
-                Salvar
-              </button>
-            </div>
-
-            <div className="muted small" style={{ marginTop: 8 }}>
-              Status: Finalizado ✅
+              Pagará: <b>{(percentuais[idx] || 0).toFixed(2)}%</b> → <b>{formatBRL(valorPorPessoa[idx] || 0)}</b>
             </div>
           </div>
-        )}
-
-        {/* Folga */}
-        {isFolga && <p className="muted mt">Folga marcada ✅ (sem horas)</p>}
-
-        {/* Trabalho */}
-        {isTrabalho && (
-          <>
-            {/* painel principal */}
-            <div className="mt">
-              <div className="muted small">
-                <b>Estado:</b>{" "}
-                {clockState === "idle"
-                  ? "Parado"
-                  : clockState === "working"
-                  ? `Trabalhando (desde ${runningIn})`
-                  : `Em intervalo (desde ${runningIn})`}
-              </div>
-
-              <div className="mt" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <button
-                  type="button"
-                  className="primary-btn"
-                  onClick={marcarEntrada}
-                  disabled={isFinalized || clockState !== "idle"}
-                  style={{ width: "auto", padding: "10px 12px", opacity: isFinalized ? 0.6 : 1 }}
-                >
-                  ▶️ Entrada
-                </button>
-
-                <button
-                  type="button"
-                  className="primary-btn"
-                  onClick={marcarIntervalo}
-                  disabled={isFinalized || clockState !== "working"}
-                  style={{ width: "auto", padding: "10px 12px", opacity: isFinalized ? 0.6 : 1 }}
-                >
-                  ⏸️ Intervalo
-                </button>
-
-                <button
-                  type="button"
-                  className="primary-btn"
-                  onClick={marcarVolta}
-                  disabled={isFinalized || clockState !== "onBreak"}
-                  style={{ width: "auto", padding: "10px 12px", opacity: isFinalized ? 0.6 : 1 }}
-                >
-                  ▶️ Voltar
-                </button>
-
-                <button
-                  type="button"
-                  className="primary-btn"
-                  onClick={marcarSaida}
-                  disabled={isFinalized || clockState === "idle"}
-                  style={{
-                    width: "auto",
-                    padding: "10px 12px",
-                    opacity: isFinalized ? 0.6 : 1,
-                  }}
-                >
-                  ⏹️ Saída
-                </button>
-              </div>
-
-              <div className="mt">
-                <div className="muted small">
-                  <b>Total do dia:</b> <span className="number small">{minToHHMM(totalTrabalhoMin)}</span>
-                </div>
-
-                <div className="muted small" style={{ marginTop: 4 }}>
-                  <b>Saldo do dia:</b> <span className="number small">{formatSaldoMin(saldoDiaMin)}</span>
-                </div>
-
-                <div className="feedback" style={{ marginTop: 8 }}>
-                  {atingiuMeta ? (
-                    <>
-                      ✅ Você marcou <b>{minToHHMM(totalTrabalhoMin)}</b> — atingiu a meta de{" "}
-                      <b>{minToHHMM(metaDiaMin)}</b>.
-                    </>
-                  ) : (
-                    <>
-                      ⚠️ Você marcou <b>{minToHHMM(totalTrabalhoMin)}</b> — faltam{" "}
-                      <b>{minToHHMM(faltaDiaMin)}</b> para completar <b>{minToHHMM(metaDiaMin)}</b>.
-                    </>
-                  )}
-                </div>
-
-                {/* travar/destravar */}
-                <div className="mt">
-                  {isFinalized ? (
-                    <>
-                      <span className="badge">Finalizado</span>
-                      <button
-                        type="button"
-                        className="chip"
-                        onClick={reabrirDia}
-                        style={{ width: "auto", marginLeft: 8 }}
-                      >
-                        Reabrir
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      type="button"
-                      className="primary-btn"
-                      onClick={finalizarDia}
-                      style={{ width: "auto", padding: "8px 12px" }}
-                    >
-                      ✅ Finalizar dia (travar)
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* manual */}
-            <div className="mt">
-              <h3 style={{ marginBottom: 8 }}>Adicionar período manual (trabalho)</h3>
-
-              <div style={{ display: "flex", gap: 8 }}>
-                <input
-                  type="time"
-                  value={entrada}
-                  onChange={(e) => setEntrada(e.target.value)}
-                  disabled={isFinalized}
-                  style={{ flex: 1 }}
-                />
-                <input
-                  type="time"
-                  value={saida}
-                  onChange={(e) => setSaida(e.target.value)}
-                  disabled={isFinalized}
-                  style={{ flex: 1 }}
-                />
-                <button
-                  type="button"
-                  className="primary-btn"
-                  onClick={addPeriodoManual}
-                  disabled={isFinalized}
-                  style={{ width: "auto", padding: "8px 12px", opacity: isFinalized ? 0.6 : 1 }}
-                >
-                  Adicionar
-                </button>
-              </div>
-
-              <div className="mt">
-                {(dayData.entradas || []).length === 0 ? (
-                  <p className="muted small">Nenhum período registrado.</p>
-                ) : (
-                  <ul className="list">
-                    {(dayData.entradas || []).map((p, idx) => (
-                      <li key={idx} className="list-item">
-                        <div className="muted">
-                          {p.in} → {p.out}{" "}
-                          <span className="badge" style={{ marginLeft: 6 }}>
-                            {p.kind === "break" ? "Intervalo" : "Trabalho"}
-                          </span>
-                        </div>
-                        <button
-                          type="button"
-                          className="chip"
-                          onClick={() => removePeriodo(idx)}
-                          disabled={isFinalized}
-                          style={{ width: "auto", opacity: isFinalized ? 0.6 : 1 }}
-                        >
-                          Excluir
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </div>
-          </>
-        )}
+        ))}
       </div>
 
-      {/* Resumo do mês */}
+      {/* Itens */}
       <div className="card mt">
-        <h3>Resumo do mês ({mesLabel})</h3>
-        <div className="muted small" style={{ marginTop: 6 }}>
-          Dias de trabalho registrados: <b>{diasTrabalhoNoMes}</b>
-        </div>
-        <div className="muted small" style={{ marginTop: 6 }}>
-          Total trabalhado no mês: <b>{minToHHMM(totalMesTrabalhoMin)}</b>
-        </div>
-        <div className="muted small" style={{ marginTop: 6 }}>
-          Banco pessoal do mês (saldo): <b>{formatSaldoMin(saldoMesMin)}</b>
-        </div>
-      </div>
-
-      {/* PDF */}
-      <div className="card mt">
-        <h3>Exportar PDF</h3>
+        <h3 style={{ marginBottom: 8 }}>{editId ? "Editar gasto" : "Adicionar gasto fixo"}</h3>
 
         <div className="field">
-          <label>Incluir períodos no PDF</label>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <label>Gasto</label>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <select
+              value={itemNome}
+              onChange={(e) => setItemNome(e.target.value)}
+              style={{ flex: 1, minWidth: 240 }}
+            >
+              <option value="">Selecione uma sugestão…</option>
+              {SUGESTOES_GASTOS.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
             <input
-              type="checkbox"
-              checked={pdfIncluirPeriodos}
-              onChange={(e) => setPdfIncluirPeriodos(e.target.checked)}
-              style={{ width: 18, height: 18 }}
+              value={itemNome}
+              onChange={(e) => setItemNome(e.target.value)}
+              placeholder="Ou digite (ex.: Água)"
+              style={{ flex: 2, minWidth: 240 }}
             />
-            <span className="muted small">Mostrar períodos e tipo (trabalho/intervalo)</span>
           </div>
         </div>
 
         <div className="filters-grid">
           <div className="field">
-            <label>De</label>
-            <input type="date" value={de} onChange={(e) => setDe(e.target.value)} />
+            <label>Valor (R$)</label>
+            <input
+              value={itemValor}
+              onChange={(e) => setItemValor(e.target.value)}
+              placeholder="Ex.: 120,50"
+              inputMode="decimal"
+            />
           </div>
+
           <div className="field">
-            <label>Até</label>
-            <input type="date" value={ate} onChange={(e) => setAte(e.target.value)} />
+            <label>Vencimento (opcional)</label>
+            <input type="date" value={itemVencimento} onChange={(e) => setItemVencimento(e.target.value)} />
           </div>
         </div>
 
-        <button type="button" className="primary-btn mt" onClick={exportPDF}>
-          Gerar PDF
-        </button>
+        <div className="filters-grid">
+          <div className="field">
+            <label>Responsável (quem paga/quem fica encarregado)</label>
+            <input value={itemResponsavel} onChange={(e) => setItemResponsavel(e.target.value)} placeholder="Ex.: João" />
+          </div>
+
+          <div className="field">
+            <label>Observação (opcional)</label>
+            <input value={itemObs} onChange={(e) => setItemObs(e.target.value)} placeholder="Ex.: conta veio mais alta" />
+          </div>
+        </div>
+
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button type="button" className="primary-btn" style={{ width: "auto", padding: "10px 12px" }} onClick={upsertItem}>
+            {editId ? "Salvar edição" : "Adicionar"}
+          </button>
+
+          {editId && (
+            <button type="button" className="chip" style={{ width: "auto" }} onClick={resetForm}>
+              Cancelar edição
+            </button>
+          )}
+
+          <button type="button" className="chip" style={{ width: "auto", marginLeft: "auto" }} onClick={limparTudo}>
+            Apagar tudo
+          </button>
+        </div>
       </div>
 
-      {/* Modal PIN */}
-      {pinModal && (
-        <div className="modal-backdrop">
-          <div className="modal">
-            <h3 style={{ marginTop: 0 }}>
-              {pinPurpose === "set" ? "Definir PIN" : "Confirmar com PIN"}
-            </h3>
+      {/* Lista de itens */}
+      <div className="card mt">
+        <h3 style={{ marginBottom: 8 }}>Gastos cadastrados</h3>
 
-            <div className="field">
-              <label>PIN</label>
-              <input
-                type="password"
-                value={pinInput}
-                onChange={(e) => setPinInput(e.target.value)}
-                placeholder="Digite seu PIN"
-              />
-              {pinError && <div className="muted small" style={{ color: "crimson", marginTop: 6 }}>{pinError}</div>}
-            </div>
+        {itens.length === 0 ? (
+          <p className="muted small">Nenhum gasto cadastrado ainda.</p>
+        ) : (
+          <ul className="list">
+            {itens.map((it) => (
+              <li key={it.id} className="list-item">
+                <div style={{ flex: 1 }}>
+                  <div className="muted">
+                    <b>{it.nome}</b> — {formatBRL(it.valor || 0)}
+                    {it.vencimento ? <span className="badge" style={{ marginLeft: 8 }}>Venc: {fmtBRDate(it.vencimento)}</span> : null}
+                    {it.responsavel ? <span className="badge" style={{ marginLeft: 8 }}>Resp: {it.responsavel}</span> : null}
+                  </div>
+                  {it.observacao ? <div className="muted small" style={{ marginTop: 4 }}>{it.observacao}</div> : null}
+                </div>
 
-            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-              <button
-                type="button"
-                className="chip"
-                onClick={() => {
-                  setPinModal(false);
-                  setPinInput("");
-                  setPinError("");
-                  pendingActionRef.current = null;
-                }}
-                style={{ width: "auto" }}
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                className="primary-btn"
-                onClick={handlePinConfirm}
-                style={{ width: "auto", padding: "8px 12px" }}
-              >
-                OK
-              </button>
-            </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button type="button" className="chip" style={{ width: "auto" }} onClick={() => startEdit(it)}>
+                    Editar
+                  </button>
+                  <button type="button" className="chip" style={{ width: "auto" }} onClick={() => removeItem(it.id)}>
+                    Excluir
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
 
-            <div className="muted small" style={{ marginTop: 10 }}>
-              Dica: se quiser “biometria”, a forma correta é desbloquear o celular/app; aqui o PIN é o fallback.
-            </div>
+        <div className="mt">
+          <div className="muted small">
+            Total geral: <b>{formatBRL(totalGeral)}</b>
           </div>
         </div>
-      )}
+      </div>
+
+      {/* Resumo por pessoa */}
+      <div className="card mt">
+        <h3 style={{ marginBottom: 8 }}>Quanto cada um paga</h3>
+
+        <ul className="list">
+          {moradores.map((m, i) => (
+            <li key={m.id} className="list-item">
+              <div className="muted">
+                <b>{m.nome || `Morador ${i + 1}`}</b> — {(percentuais[i] || 0).toFixed(2)}% →{" "}
+                <span className="number">{formatBRL(valorPorPessoa[i] || 0)}</span>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      {/* PDF */}
+      <div className="card mt">
+        <h3 style={{ marginBottom: 8 }}>Gerar PDF</h3>
+
+        <div className="field">
+          <label>Opções do PDF</label>
+          <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center" }}>
+            <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <input
+                type="checkbox"
+                checked={pdfIncluirVenc}
+                onChange={(e) => setPdfIncluirVenc(e.target.checked)}
+                style={{ width: 18, height: 18 }}
+              />
+              <span className="muted small">Incluir vencimento</span>
+            </label>
+
+            <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <input
+                type="checkbox"
+                checked={pdfIncluirObs}
+                onChange={(e) => setPdfIncluirObs(e.target.checked)}
+                style={{ width: 18, height: 18 }}
+              />
+              <span className="muted small">Incluir observações</span>
+            </label>
+          </div>
+        </div>
+
+        <button type="button" className="primary-btn" onClick={gerarPDF}>
+          📄 Gerar PDF com assinaturas
+        </button>
+
+        <div className="muted small" style={{ marginTop: 8 }}>
+          O PDF sai com: tabela de gastos, total, quanto cada um paga e linhas de assinatura.
+        </div>
+      </div>
     </div>
   );
-}
-
-/* ---------------- HELPERS ---------------- */
-
-function today() {
-  const d = new Date();
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
-}
-
-function nowHHMM() {
-  const d = new Date();
-  const h = String(d.getHours()).padStart(2, "0");
-  const m = String(d.getMinutes()).padStart(2, "0");
-  return `${h}:${m}`;
-}
-
-function toMin(hhmm) {
-  if (!hhmm) return null;
-  const [h, m] = String(hhmm).split(":").map(Number);
-  if (Number.isNaN(h) || Number.isNaN(m)) return null;
-  return h * 60 + m;
-}
-
-function minToHHMM(min) {
-  const v = Math.max(0, Number(min || 0));
-  const h = Math.floor(v / 60);
-  const m = v % 60;
-  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
-}
-
-function fmtBR(yyyy_mm_dd) {
-  const [y, m, d] = String(yyyy_mm_dd).split("-");
-  return `${d}/${m}/${y}`;
-}
-
-function cutText(text, max) {
-  const t = String(text || "");
-  if (t.length <= max) return t;
-  return t.slice(0, max - 1) + "…";
-}
-
-function parseYMD(ymd) {
-  const [y, m, d] = String(ymd).split("-").map(Number);
-  return { y, m, d };
-}
-
-function lastDayOfMonthYMD(y, m) {
-  const dt = new Date(y, m, 0); // dia 0 do próximo mês = último dia do mês m
-  const yyyy = dt.getFullYear();
-  const mm = String(dt.getMonth() + 1).padStart(2, "0");
-  const dd = String(dt.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
-}
-
-function calcTotalWorkMin(entradas) {
-  // soma só kind !== "break"
-  return (entradas || []).reduce((acc, p) => {
-    const a = toMin(p.in);
-    const b = toMin(p.out);
-    if (a == null || b == null) return acc;
-    const diff = b - a;
-    if (diff <= 0) return acc;
-    const isBreak = p.kind === "break";
-    return acc + (isBreak ? 0 : diff);
-  }, 0);
-}
-
-function formatSaldoMin(saldoMin) {
-  const v = Number(saldoMin || 0);
-  if (v === 0) return "00:00";
-  const sign = v > 0 ? "+" : "-";
-  const abs = Math.abs(v);
-  const h = Math.floor(abs / 60);
-  const m = abs % 60;
-  return `${sign}${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
-}
-
-function rebuildClockState(dayData) {
-  // reconstrói estado apenas pela UI: se o último registro foi break, assume break; senão idle.
-  // Como o “running” é UI-only, a pessoa pode simplesmente apertar "Entrada" de novo.
-  // Isso evita salvar "rodando" e complicar quando fecha o app.
-  const entradas = dayData?.entradas || [];
-  if (entradas.length === 0) return { clockState: "idle", runningIn: "" };
-
-  // Se o último item for break, assume onBreak; senão idle (já está fechado)
-  const last = entradas[entradas.length - 1];
-  if (last?.kind === "break") return { clockState: "idle", runningIn: "" };
-
-  return { clockState: "idle", runningIn: "" };
-}
-
-function buildRangeRows(map, de, ate, metaDiaMin) {
-  const rows = [];
-  const start = new Date(de + "T00:00:00");
-  const end = new Date(ate + "T00:00:00");
-
-  for (let dt = start; dt <= end; dt.setDate(dt.getDate() + 1)) {
-    const y = dt.getFullYear();
-    const m = String(dt.getMonth() + 1).padStart(2, "0");
-    const d = String(dt.getDate()).padStart(2, "0");
-    const key = `${y}-${m}-${d}`;
-
-    const has = Object.prototype.hasOwnProperty.call(map || {}, key);
-    const day = has ? map[key] : null;
-
-    const tipoRaw = day?.tipo || null;
-
-    const tipo = !has
-      ? "Sem registro"
-      : tipoRaw === "folga"
-      ? "Folga"
-      : tipoRaw === "interjornada"
-      ? "Interjornada"
-      : "Trabalho";
-
-    const totalMin = has && tipoRaw === "trabalho" ? calcTotalWorkMin(day?.entradas || []) : 0;
-    const saldoMin = has && tipoRaw === "trabalho" ? totalMin - metaDiaMin : 0;
-
-    const interMin =
-      has && tipoRaw === "interjornada"
-        ? typeof day?.interjornadaMin === "number"
-          ? day.interjornadaMin
-          : 11 * 60
-        : 0;
-
-    const status = !has ? "-" : day?.finalized ? "Finalizado" : "Aberto";
-
-    const periodos =
-      has && tipoRaw === "trabalho"
-        ? (day?.entradas || []).map((p) => `${p.in}-${p.out}${p.kind === "break" ? "(I)" : ""}`).join(" | ") || "-"
-        : "-";
-
-    rows.push({
-      data: fmtBR(key),
-      tipo,
-      tipoRaw: tipoRaw || null,
-      horas: minToHHMM(totalMin),
-      saldo: formatSaldoMin(saldoMin),
-      status,
-      periodos,
-      totalMin,
-      saldoMin,
-      interMin,
-      interjornada: minToHHMM(interMin),
-    });
-  }
-
-  return rows;
-}
-
-// SHA-256 simples para guardar PIN sem salvar em texto puro
-async function sha256(str) {
-  const enc = new TextEncoder().encode(String(str));
-  const buf = await crypto.subtle.digest("SHA-256", enc);
-  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
