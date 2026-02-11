@@ -432,6 +432,16 @@ export default function LembretesPage() {
   // ✅ novo modal: ajuda/info
   const [infoModalOpen, setInfoModalOpen] = useState(false);
 
+  // ✅ novo modal: checar notificações
+  const [notifCheckOpen, setNotifCheckOpen] = useState(false);
+  const [notifCheckInfo, setNotifCheckInfo] = useState({
+    permission: "unknown",
+    hasSW: false,
+    swScope: "",
+    lastCheckAt: "",
+    lastError: "",
+  });
+
   // ✅ Edit (COMPLETO)
   const [editingId, setEditingId] = useState(null);
   const [editingTipo, setEditingTipo] = useState("avulso");
@@ -544,6 +554,68 @@ export default function LembretesPage() {
     const perm = await Notification.requestPermission();
     if (perm !== "granted") alert("Notificações não permitidas.");
     else toastMsg("Notificações ativadas ✅");
+  }
+
+  // ✅ Checagem de notificações (permissão + service worker) + teste
+  async function checkNotificationsStatus() {
+    const info = {
+      permission: "Notification" in window ? Notification.permission : "unsupported",
+      hasSW: false,
+      swScope: "",
+      lastCheckAt: new Date().toLocaleString("pt-BR"),
+      lastError: "",
+    };
+
+    try {
+      if ("serviceWorker" in navigator) {
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (reg) {
+          info.hasSW = true;
+          info.swScope = reg.scope || "";
+        }
+      }
+    } catch (e) {
+      info.lastError = String(e?.message || e || "Erro ao checar SW");
+    }
+
+    setNotifCheckInfo(info);
+    setNotifCheckOpen(true);
+  }
+
+  async function testNotificationNow() {
+    if (!("Notification" in window)) {
+      toastMsg("Seu navegador não suporta notificações.");
+      return;
+    }
+    if (Notification.permission !== "granted") {
+      toastMsg("Permissão não está concedida. Clique em “Ativar notificações”.");
+      return;
+    }
+
+    const title = "✅ Teste de notificação";
+    const body = "Se você viu isso, está funcionando!";
+
+    try {
+      if ("serviceWorker" in navigator) {
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (reg && reg.showNotification) {
+          await reg.showNotification(title, {
+            body,
+            tag: "teste-lembrete",
+            renotify: true,
+          });
+          toastMsg("Teste enviado ✅");
+          return;
+        }
+      }
+    } catch {}
+
+    try {
+      new Notification(title, { body });
+      toastMsg("Teste enviado ✅");
+    } catch {
+      toastMsg("Falha ao disparar teste.");
+    }
   }
 
   async function showTopBarNotification(title, body) {
@@ -1234,6 +1306,7 @@ export default function LembretesPage() {
 
   const menuItems = [
     { label: "Ativar notificações", danger: false, onClick: enableNotifications },
+    { label: "🔎 Checar notificações", danger: false, onClick: checkNotificationsStatus },
     { label: "Limpar concluídos (avulsos)", danger: true, onClick: askClearDone },
     { label: "Apagar tudo", danger: true, onClick: askClearAll },
   ];
@@ -1394,6 +1467,59 @@ export default function LembretesPage() {
 
           <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 14 }}>
             <button type="button" className="primary-btn" style={{ width: "auto", padding: "10px 14px" }} onClick={() => setInfoModalOpen(false)}>
+              Fechar
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Modal: checar notificações */}
+      <Modal open={notifCheckOpen} title="Checagem de notificações" onClose={() => setNotifCheckOpen(false)}>
+        <div className="muted small" style={{ lineHeight: 1.45 }}>
+          <div>
+            <b>Permissão:</b> {notifCheckInfo.permission}
+          </div>
+          <div>
+            <b>Service Worker:</b> {notifCheckInfo.hasSW ? "registrado ✅" : "não encontrado ❌"}
+          </div>
+          {notifCheckInfo.swScope ? (
+            <div>
+              <b>Scope:</b> {notifCheckInfo.swScope}
+            </div>
+          ) : null}
+          <div style={{ marginTop: 8 }}>
+            <b>Última checagem:</b> {notifCheckInfo.lastCheckAt}
+          </div>
+
+          {notifCheckInfo.lastError ? (
+            <div style={{ marginTop: 10, color: "var(--negative)" }}>⚠️ {notifCheckInfo.lastError}</div>
+          ) : null}
+
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 14, flexWrap: "wrap" }}>
+            <button
+              type="button"
+              className="chip"
+              style={{ width: "auto" }}
+              onClick={() => checkNotificationsStatus()}
+            >
+              Rechecar
+            </button>
+
+            <button
+              type="button"
+              className="primary-btn"
+              style={{ width: "auto", padding: "10px 14px" }}
+              onClick={() => testNotificationNow()}
+            >
+              📩 Testar notificação
+            </button>
+
+            <button
+              type="button"
+              className="chip"
+              style={{ width: "auto" }}
+              onClick={() => setNotifCheckOpen(false)}
+            >
               Fechar
             </button>
           </div>
@@ -1583,12 +1709,7 @@ export default function LembretesPage() {
         )}
 
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 12, flexWrap: "wrap" }}>
-          <button
-            type="button"
-            className="chip"
-            style={{ width: "auto" }}
-            onClick={() => setAddModalOpen(false)}
-          >
+          <button type="button" className="chip" style={{ width: "auto" }} onClick={() => setAddModalOpen(false)}>
             Cancelar
           </button>
 
