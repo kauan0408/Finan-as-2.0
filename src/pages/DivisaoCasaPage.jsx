@@ -2,13 +2,9 @@
 // ✅ Página: Divisão de Gastos da Casa (moradores + fixos + variáveis por mês + navegação de mês) + PDF
 // ✅ Requer: npm i jspdf jspdf-autotable
 //
-// ✅ AJUSTES (SEU PEDIDO):
-// - Removeu botão "Apagar tudo" da tela principal.
-// - Adicionou 3 ações no topo (compactas):
-//   1) "Pagar fixos" (marca fixos como pagos no mês, sem apagar cadastro)
-//   2) "Apagar variáveis do mês" (limpa só variáveis do mês atual visualizado)
-//   3) "Apagar tudo do mês" (apaga variáveis do mês + desmarca fixos pagos do mês, com confirmação)
-// - ✅ AGORA: Modal bonito perguntando se tem certeza ao "Pagar fixos" (sem window.confirm)
+// ✅ AGORA (SEU PEDIDO):
+// ✅ TODOS os botões de APAGAR / EXCLUIR usam um MODAL BONITO de confirmação
+// (sem window.confirm)
 
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import jsPDF from "jspdf";
@@ -34,7 +30,7 @@ const SUGESTOES_GASTOS = [
 ];
 
 /* =========================
-   ✅ MODAL (FORA DO COMPONENTE)
+   ✅ MODAL (GENÉRICO)
    ========================= */
 function AppModal({ title, onClose, children }) {
   return (
@@ -132,7 +128,7 @@ function ConfirmModal({
         className="modal-card"
         onMouseDown={(e) => e.stopPropagation()}
         onTouchStart={(e) => e.stopPropagation()}
-        style={{ maxWidth: 520 }}
+        style={{ maxWidth: 540 }}
       >
         <div
           style={{
@@ -337,10 +333,7 @@ const DEFAULT_STATE = {
     { id: uuid(), nome: "Morador 2", percentual: 50 },
   ],
   fixos: [],
-  // ✅ NOVO: controla fixos pagos por mês (sem apagar cadastro)
-  fixosPagosPorMes: {
-    // "YYYY-MM": true
-  },
+  fixosPagosPorMes: {},
   porMes: {},
 };
 
@@ -463,7 +456,7 @@ export default function DivisaoCasaPage() {
         porMes: keepOnlyTwoMonths(next.porMes, mesKeyReal),
       };
 
-      // ✅ também limita o fixosPagosPorMes pros mesmos 2 meses
+      // ✅ limita o fixosPagosPorMes pros mesmos 2 meses
       const pagos =
         next.fixosPagosPorMes && typeof next.fixosPagosPorMes === "object"
           ? next.fixosPagosPorMes
@@ -672,25 +665,63 @@ export default function DivisaoCasaPage() {
     setItemObs(it.observacao || "");
   }
 
-  function removeItem(id, tipo) {
+  // ✅ EXCLUIR ITEM (AÇÃO REAL)
+  function removeItemNow(id, tipo) {
     persist((prev) => {
       if (tipo === "fixo") {
-        const nextFixos = (Array.isArray(prev.fixos) ? prev.fixos : []).filter(
-          (it) => it.id !== id
-        );
+        const nextFixos = (Array.isArray(prev.fixos) ? prev.fixos : []).filter((it) => it.id !== id);
         return { ...prev, fixos: nextFixos };
       }
 
       const porMes = prev.porMes && typeof prev.porMes === "object" ? { ...prev.porMes } : {};
       const reg = porMes[mesKey] || { variaveis: [] };
-      const nextVar = (Array.isArray(reg.variaveis) ? reg.variaveis : []).filter(
-        (it) => it.id !== id
-      );
+      const nextVar = (Array.isArray(reg.variaveis) ? reg.variaveis : []).filter((it) => it.id !== id);
       porMes[mesKey] = { ...reg, variaveis: nextVar };
       return { ...prev, porMes };
     });
 
     if (editId === id) resetForm();
+  }
+
+  // ✅ EXCLUIR ITEM (COM MODAL)
+  function confirmarExcluirItem(it, tipo) {
+    const nome = String(it?.nome || "-");
+    const valor = formatBRL(it?.valor || 0);
+    const titulo = tipo === "fixo" ? "🗑️ Excluir gasto FIXO" : "🗑️ Excluir gasto VARIÁVEL";
+
+    openConfirm({
+      title: titulo,
+      danger: true,
+      confirmText: "Sim, excluir",
+      cancelText: "Cancelar",
+      body: (
+        <div>
+          <div style={{ marginBottom: 10 }}>
+            Tem certeza que deseja excluir este item?
+          </div>
+
+          <div className="audio-card" style={{ padding: 12 }}>
+            <div style={{ fontWeight: 900, fontSize: 16 }}>{nome}</div>
+            <div className="muted" style={{ marginTop: 4 }}>
+              Valor: <b>{valor}</b>
+              {tipo === "variavel" ? (
+                <>
+                  {" "}
+                  — Mês: <b>{monthLabel(mesKey)}</b>
+                </>
+              ) : null}
+            </div>
+            <div className="muted small" style={{ marginTop: 6 }}>
+              Essa ação não pode ser desfeita.
+            </div>
+          </div>
+        </div>
+      ),
+      onConfirm: () => {
+        closeConfirm();
+        removeItemNow(it.id, tipo);
+      },
+    });
   }
 
   function upsertItem() {
@@ -701,8 +732,7 @@ export default function DivisaoCasaPage() {
     const obs = String(itemObs || "").trim();
 
     if (!nome) return alert("Digite o nome do gasto (ex.: Água).");
-    if (!Number.isFinite(valor) || valor < 0)
-      return alert("Digite um valor válido (ex.: 120,50).");
+    if (!Number.isFinite(valor) || valor < 0) return alert("Digite um valor válido (ex.: 120,50).");
 
     const payload = {
       id: editId || uuid(),
@@ -718,15 +748,10 @@ export default function DivisaoCasaPage() {
     persist((prev) => {
       if (tipo === "fixo") {
         const list = Array.isArray(prev.fixos) ? prev.fixos : [];
-        const nextFixos = editId
-          ? list.map((it) => (it.id === editId ? payload : it))
-          : [...list, payload];
+        const nextFixos = editId ? list.map((it) => (it.id === editId ? payload : it)) : [...list, payload];
 
-        // se fixos estavam marcados como pagos neste mês, ao mexer em fixos, desmarca (pra evitar confusão)
-        const map =
-          prev.fixosPagosPorMes && typeof prev.fixosPagosPorMes === "object"
-            ? { ...prev.fixosPagosPorMes }
-            : {};
+        // se fixos estavam marcados como pagos neste mês, ao mexer em fixos, desmarca
+        const map = prev.fixosPagosPorMes && typeof prev.fixosPagosPorMes === "object" ? { ...prev.fixosPagosPorMes } : {};
         if (map[mesKey]) delete map[mesKey];
 
         return { ...prev, fixos: nextFixos, fixosPagosPorMes: map };
@@ -735,9 +760,7 @@ export default function DivisaoCasaPage() {
       const porMes = prev.porMes && typeof prev.porMes === "object" ? { ...prev.porMes } : {};
       const reg = porMes[mesKey] || { variaveis: [] };
       const list = Array.isArray(reg.variaveis) ? reg.variaveis : [];
-      const nextVar = editId
-        ? list.map((it) => (it.id === editId ? payload : it))
-        : [...list, payload];
+      const nextVar = editId ? list.map((it) => (it.id === editId ? payload : it)) : [...list, payload];
       porMes[mesKey] = { ...reg, variaveis: nextVar };
       return { ...prev, porMes };
     });
@@ -746,39 +769,68 @@ export default function DivisaoCasaPage() {
   }
 
   function copiarVariaveisMesAnterior() {
-    const ok = window.confirm("Copiar os gastos VARIÁVEIS do mês anterior para este mês?");
-    if (!ok) return;
+    // (não é apagar/excluir — pode manter sem confirmação ou adicionar se quiser)
     const prevKey = prevMonthKey(mesKey);
     if (!prevKey) return;
 
-    persist((prev) => {
-      const porMes = prev.porMes && typeof prev.porMes === "object" ? { ...prev.porMes } : {};
-      const prevReg = porMes[prevKey] || { variaveis: [] };
-      const prevVar = Array.isArray(prevReg.variaveis) ? prevReg.variaveis : [];
+    openConfirm({
+      title: "📋 Copiar mês anterior",
+      danger: false,
+      confirmText: "Copiar",
+      cancelText: "Cancelar",
+      body: (
+        <div>
+          Copiar os gastos <b>VARIÁVEIS</b> do mês anterior para <b>{monthLabel(mesKey)}</b>?
+          <div className="muted small" style={{ marginTop: 6 }}>
+            Isso vai substituir as variáveis atuais deste mês.
+          </div>
+        </div>
+      ),
+      onConfirm: () => {
+        closeConfirm();
+        persist((prev) => {
+          const porMes = prev.porMes && typeof prev.porMes === "object" ? { ...prev.porMes } : {};
+          const prevReg = porMes[prevKey] || { variaveis: [] };
+          const prevVar = Array.isArray(prevReg.variaveis) ? prevReg.variaveis : [];
+          const cloned = prevVar.map((it) => ({ ...it, id: uuid() }));
 
-      const cloned = prevVar.map((it) => ({ ...it, id: uuid() }));
-      const reg = porMes[mesKey] || { variaveis: [] };
-      porMes[mesKey] = { ...reg, variaveis: cloned };
-      return { ...prev, porMes };
+          const reg = porMes[mesKey] || { variaveis: [] };
+          porMes[mesKey] = { ...reg, variaveis: cloned };
+          return { ...prev, porMes };
+        });
+      },
     });
   }
 
-  // ✅ apagar variáveis do mês (confirm)
+  // ✅ apagar variáveis do mês (COM MODAL)
   function apagarVariaveisDoMes() {
-    const ok = window.confirm(`Apagar SOMENTE os gastos VARIÁVEIS do mês ${monthLabel(mesKey)}?`);
-    if (!ok) return;
-
-    persist((prev) => {
-      const porMes = prev.porMes && typeof prev.porMes === "object" ? { ...prev.porMes } : {};
-      const reg = porMes[mesKey] || { variaveis: [] };
-      porMes[mesKey] = { ...reg, variaveis: [] };
-      return { ...prev, porMes };
+    openConfirm({
+      title: "⚠️ Apagar variáveis do mês",
+      danger: true,
+      confirmText: "Sim, apagar",
+      cancelText: "Cancelar",
+      body: (
+        <div>
+          Tem certeza que deseja apagar <b>SOMENTE</b> os gastos <b>VARIÁVEIS</b> do mês <b>{monthLabel(mesKey)}</b>?
+          <div className="muted small" style={{ marginTop: 6 }}>
+            Essa ação não pode ser desfeita.
+          </div>
+        </div>
+      ),
+      onConfirm: () => {
+        closeConfirm();
+        persist((prev) => {
+          const porMes = prev.porMes && typeof prev.porMes === "object" ? { ...prev.porMes } : {};
+          const reg = porMes[mesKey] || { variaveis: [] };
+          porMes[mesKey] = { ...reg, variaveis: [] };
+          return { ...prev, porMes };
+        });
+        resetForm();
+      },
     });
-
-    resetForm();
   }
 
-  // ✅ pagar fixos do mês (MODAL BONITO)
+  // ✅ pagar fixos do mês (COM MODAL)
   function pagarFixosDoMes() {
     if (fixos.length === 0) return alert("Não há gastos fixos cadastrados.");
     if (fixosPagosNesteMes) return alert("Os fixos deste mês já estão marcados como pagos.");
@@ -787,6 +839,9 @@ export default function DivisaoCasaPage() {
 
     openConfirm({
       title: "✅ Marcar fixos como pagos",
+      danger: false,
+      confirmText: "Sim, pagar fixos",
+      cancelText: "Voltar",
       body: (
         <div>
           <div style={{ marginBottom: 10 }}>
@@ -803,16 +858,10 @@ export default function DivisaoCasaPage() {
           </div>
         </div>
       ),
-      danger: false,
-      confirmText: "Sim, pagar fixos",
-      cancelText: "Voltar",
       onConfirm: () => {
         closeConfirm();
         persist((prev) => {
-          const map =
-            prev.fixosPagosPorMes && typeof prev.fixosPagosPorMes === "object"
-              ? { ...prev.fixosPagosPorMes }
-              : {};
+          const map = prev.fixosPagosPorMes && typeof prev.fixosPagosPorMes === "object" ? { ...prev.fixosPagosPorMes } : {};
           map[mesKey] = true;
           return { ...prev, fixosPagosPorMes: map };
         });
@@ -820,41 +869,68 @@ export default function DivisaoCasaPage() {
     });
   }
 
-  // ✅ apagar tudo do mês (confirm)
+  // ✅ apagar tudo do mês (COM MODAL)
   function apagarTudoDoMes() {
-    const ok = window.confirm(
-      `Tem certeza que deseja APAGAR TUDO DO MÊS ${monthLabel(mesKey)}?\n\n- Variáveis serão apagadas.\n- Fixos voltarão ao estado "não pagos" (para reiniciar o mês).`
-    );
-    if (!ok) return;
+    openConfirm({
+      title: "🧨 Apagar tudo do mês",
+      danger: true,
+      confirmText: "Sim, apagar tudo",
+      cancelText: "Cancelar",
+      body: (
+        <div>
+          Tem certeza que deseja <b>APAGAR TUDO</b> do mês <b>{monthLabel(mesKey)}</b>?
+          <ul style={{ marginTop: 8, paddingLeft: 18 }}>
+            <li>Variáveis serão apagadas.</li>
+            <li>Fixos voltarão ao estado <b>não pagos</b> (reiniciar o mês).</li>
+          </ul>
+          <div className="muted small" style={{ marginTop: 6 }}>
+            Essa ação não pode ser desfeita.
+          </div>
+        </div>
+      ),
+      onConfirm: () => {
+        closeConfirm();
+        persist((prev) => {
+          // limpa variáveis do mês
+          const porMes = prev.porMes && typeof prev.porMes === "object" ? { ...prev.porMes } : {};
+          const reg = porMes[mesKey] || { variaveis: [] };
+          porMes[mesKey] = { ...reg, variaveis: [] };
 
-    persist((prev) => {
-      // limpa variáveis do mês
-      const porMes = prev.porMes && typeof prev.porMes === "object" ? { ...prev.porMes } : {};
-      const reg = porMes[mesKey] || { variaveis: [] };
-      porMes[mesKey] = { ...reg, variaveis: [] };
+          // desmarca fixos pagos neste mês
+          const map = prev.fixosPagosPorMes && typeof prev.fixosPagosPorMes === "object" ? { ...prev.fixosPagosPorMes } : {};
+          if (map[mesKey]) delete map[mesKey];
 
-      // desmarca fixos pagos neste mês
-      const map =
-        prev.fixosPagosPorMes && typeof prev.fixosPagosPorMes === "object"
-          ? { ...prev.fixosPagosPorMes }
-          : {};
-      if (map[mesKey]) delete map[mesKey];
-
-      return { ...prev, porMes, fixosPagosPorMes: map };
+          return { ...prev, porMes, fixosPagosPorMes: map };
+        });
+        resetForm();
+      },
     });
-
-    resetForm();
   }
 
-  // ✅ (mantido) apagar TUDO do storage (fica só no Config)
+  // ✅ apagar TUDO do storage (COM MODAL)
   function limparTudoStorage() {
-    const ok = window.confirm("Apagar TODOS os dados da Casa (fixos + meses + moradores)?");
-    if (!ok) return;
-    try {
-      localStorage.removeItem(LS_KEY);
-    } catch {}
-    setState(DEFAULT_STATE);
-    resetForm();
+    openConfirm({
+      title: "🧨 Apagar tudo (geral)",
+      danger: true,
+      confirmText: "Sim, apagar tudo",
+      cancelText: "Cancelar",
+      body: (
+        <div>
+          Tem certeza que deseja apagar <b>TODOS</b> os dados da Casa (fixos + meses + moradores)?
+          <div className="muted small" style={{ marginTop: 6 }}>
+            Essa ação não pode ser desfeita.
+          </div>
+        </div>
+      ),
+      onConfirm: () => {
+        closeConfirm();
+        try {
+          localStorage.removeItem(LS_KEY);
+        } catch {}
+        setState(DEFAULT_STATE);
+        resetForm();
+      },
+    });
   }
 
   // navegação
@@ -886,7 +962,6 @@ export default function DivisaoCasaPage() {
     doc.setFontSize(9);
     doc.text(`Fixos pagos no mês: ${fixosPagosNesteMes ? "SIM" : "NÃO"}`, 40, 86);
 
-    // ✅ SEM vencimento, ✅ COM obs, ✅ SEMPRE fixos+variáveis
     const cols = ["Tipo", "Gasto", "Valor", "Responsável", "Obs."];
 
     const linhasFixos = fixos.map((it) => [
@@ -931,7 +1006,9 @@ export default function DivisaoCasaPage() {
     doc.text(`Total FIXOS cadastrados: ${formatBRL(totalFixos)}`, 40, y);
     y += 14;
     doc.text(
-      `Total FIXOS considerados no mês: ${formatBRL(totalFixosConsiderado)} ${fixosPagosNesteMes ? "(fixos pagos)" : ""}`,
+      `Total FIXOS considerados no mês: ${formatBRL(totalFixosConsiderado)} ${
+        fixosPagosNesteMes ? "(fixos pagos)" : ""
+      }`,
       40,
       y
     );
@@ -990,7 +1067,7 @@ export default function DivisaoCasaPage() {
     doc.save(fileName);
   }
 
-  // UI principal (limpa)
+  // UI principal
   return (
     <div className="page">
       <h2 className="page-title">🏠 Casa</h2>
@@ -1007,35 +1084,17 @@ export default function DivisaoCasaPage() {
           </div>
         </div>
 
-        {/* ✅ AÇÕES DO MÊS */}
+        {/* AÇÕES DO MÊS */}
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
-          <button
-            type="button"
-            className="chip"
-            style={{ width: "auto" }}
-            onClick={pagarFixosDoMes}
-            title="Marcar fixos como pagos neste mês"
-          >
+          <button type="button" className="chip" style={{ width: "auto" }} onClick={pagarFixosDoMes}>
             ✅ Pagar fixos
           </button>
 
-          <button
-            type="button"
-            className="chip"
-            style={{ width: "auto" }}
-            onClick={apagarVariaveisDoMes}
-            title="Apagar somente variáveis deste mês"
-          >
+          <button type="button" className="chip" style={{ width: "auto" }} onClick={apagarVariaveisDoMes}>
             🗑️ Apagar variáveis do mês
           </button>
 
-          <button
-            type="button"
-            className="chip"
-            style={{ width: "auto" }}
-            onClick={apagarTudoDoMes}
-            title="Apagar tudo do mês (reiniciar)"
-          >
+          <button type="button" className="chip" style={{ width: "auto" }} onClick={apagarTudoDoMes}>
             ⚠️ Apagar tudo do mês
           </button>
         </div>
@@ -1111,12 +1170,7 @@ export default function DivisaoCasaPage() {
         <div className="filters-grid">
           <div className="field">
             <label>Valor</label>
-            <input
-              value={itemValor}
-              onChange={(e) => setItemValor(e.target.value)}
-              placeholder="Ex.: 120,50"
-              inputMode="decimal"
-            />
+            <input value={itemValor} onChange={(e) => setItemValor(e.target.value)} placeholder="Ex.: 120,50" inputMode="decimal" />
           </div>
           <div className="field">
             <label>Vencimento (opcional)</label>
@@ -1154,18 +1208,12 @@ export default function DivisaoCasaPage() {
           <h3 style={{ margin: 0 }}>Fixos</h3>
           <div className="muted small">
             Total cadastrados: <b>{formatBRL(totalFixos)}</b>{" "}
-            {fixosPagosNesteMes ? (
-              <span className="badge" style={{ marginLeft: 8 }}>
-                Pagos no mês
-              </span>
-            ) : null}
+            {fixosPagosNesteMes ? <span className="badge" style={{ marginLeft: 8 }}>Pagos no mês</span> : null}
           </div>
         </div>
 
         {fixos.length === 0 ? (
-          <p className="muted small" style={{ marginTop: 10 }}>
-            Nenhum fixo cadastrado.
-          </p>
+          <p className="muted small" style={{ marginTop: 10 }}>Nenhum fixo cadastrado.</p>
         ) : (
           <ul className="list mt">
             {fixos.map((it) => (
@@ -1173,11 +1221,7 @@ export default function DivisaoCasaPage() {
                 <div style={{ flex: 1 }}>
                   <div className="muted">
                     <b>{it.nome}</b> — {formatBRL(it.valor || 0)}
-                    {it.responsavel ? (
-                      <span className="badge" style={{ marginLeft: 8 }}>
-                        Resp: {it.responsavel}
-                      </span>
-                    ) : null}
+                    {it.responsavel ? <span className="badge" style={{ marginLeft: 8 }}>Resp: {it.responsavel}</span> : null}
                   </div>
                   {it.observacao ? <div className="muted small" style={{ marginTop: 4 }}>{it.observacao}</div> : null}
                 </div>
@@ -1186,7 +1230,12 @@ export default function DivisaoCasaPage() {
                   <button type="button" className="chip" style={{ width: "auto" }} onClick={() => startEdit(it, "fixo")}>
                     Editar
                   </button>
-                  <button type="button" className="chip" style={{ width: "auto" }} onClick={() => removeItem(it.id, "fixo")}>
+                  <button
+                    type="button"
+                    className="chip"
+                    style={{ width: "auto" }}
+                    onClick={() => confirmarExcluirItem(it, "fixo")}
+                  >
                     Excluir
                   </button>
                 </div>
@@ -1200,9 +1249,7 @@ export default function DivisaoCasaPage() {
       <div className="card mt">
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
           <h3 style={{ margin: 0 }}>Variáveis — {monthLabel(mesKey)}</h3>
-          <div className="muted small">
-            Total: <b>{formatBRL(totalVariaveis)}</b>
-          </div>
+          <div className="muted small">Total: <b>{formatBRL(totalVariaveis)}</b></div>
         </div>
 
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
@@ -1215,9 +1262,7 @@ export default function DivisaoCasaPage() {
         </div>
 
         {variaveisMes.length === 0 ? (
-          <p className="muted small" style={{ marginTop: 10 }}>
-            Nenhuma variável cadastrada.
-          </p>
+          <p className="muted small" style={{ marginTop: 10 }}>Nenhuma variável cadastrada.</p>
         ) : (
           <ul className="list mt">
             {variaveisMes.map((it) => (
@@ -1225,11 +1270,7 @@ export default function DivisaoCasaPage() {
                 <div style={{ flex: 1 }}>
                   <div className="muted">
                     <b>{it.nome}</b> — {formatBRL(it.valor || 0)}
-                    {it.responsavel ? (
-                      <span className="badge" style={{ marginLeft: 8 }}>
-                        Resp: {it.responsavel}
-                      </span>
-                    ) : null}
+                    {it.responsavel ? <span className="badge" style={{ marginLeft: 8 }}>Resp: {it.responsavel}</span> : null}
                   </div>
                   {it.observacao ? <div className="muted small" style={{ marginTop: 4 }}>{it.observacao}</div> : null}
                 </div>
@@ -1238,7 +1279,12 @@ export default function DivisaoCasaPage() {
                   <button type="button" className="chip" style={{ width: "auto" }} onClick={() => startEdit(it, "variavel")}>
                     Editar
                   </button>
-                  <button type="button" className="chip" style={{ width: "auto" }} onClick={() => removeItem(it.id, "variavel")}>
+                  <button
+                    type="button"
+                    className="chip"
+                    style={{ width: "auto" }}
+                    onClick={() => confirmarExcluirItem(it, "variavel")}
+                  >
                     Excluir
                   </button>
                 </div>
@@ -1281,7 +1327,13 @@ export default function DivisaoCasaPage() {
                 <button type="button" className="chip" style={{ width: "auto" }} onClick={() => incMoradores(-1)}>
                   −
                 </button>
-                <input type="number" min={1} max={5} value={Number(state.moradoresCount)} onChange={(e) => setMoradoresCount(e.target.value)} />
+                <input
+                  type="number"
+                  min={1}
+                  max={5}
+                  value={Number(state.moradoresCount)}
+                  onChange={(e) => setMoradoresCount(e.target.value)}
+                />
                 <button type="button" className="chip" style={{ width: "auto" }} onClick={() => incMoradores(+1)}>
                   +
                 </button>
@@ -1298,7 +1350,7 @@ export default function DivisaoCasaPage() {
           </div>
 
           <div className="mt" style={{ display: "flex", justifyContent: "flex-end" }}>
-            <button type="button" className="chip" style={{ width: "auto" }} onClick={limparTudoStorage} title="Apaga tudo do storage">
+            <button type="button" className="chip" style={{ width: "auto" }} onClick={limparTudoStorage}>
               🧨 Apagar tudo (geral)
             </button>
           </div>
@@ -1336,7 +1388,8 @@ export default function DivisaoCasaPage() {
               </div>
 
               <div className="muted small">
-                Pagará: <b>{(percentuaisNormalizados[idx] || 0).toFixed(2)}%</b> → <b>{formatBRL(valorPorPessoa[idx] || 0)}</b>
+                Pagará: <b>{(percentuaisNormalizados[idx] || 0).toFixed(2)}%</b> →{" "}
+                <b>{formatBRL(valorPorPessoa[idx] || 0)}</b>
               </div>
             </div>
           ))}
@@ -1358,11 +1411,7 @@ export default function DivisaoCasaPage() {
                   <div style={{ flex: 1 }}>
                     <div className="muted">
                       <b>{it.nome}</b> — {formatBRL(it.valor || 0)}
-                      {it.responsavel ? (
-                        <span className="badge" style={{ marginLeft: 8 }}>
-                          Resp: {it.responsavel}
-                        </span>
-                      ) : null}
+                      {it.responsavel ? <span className="badge" style={{ marginLeft: 8 }}>Resp: {it.responsavel}</span> : null}
                     </div>
                     {it.observacao ? <div className="muted small" style={{ marginTop: 4 }}>{it.observacao}</div> : null}
                   </div>
@@ -1385,7 +1434,7 @@ export default function DivisaoCasaPage() {
         </AppModal>
       )}
 
-      {/* ✅ MODAL DE CONFIRMAÇÃO (PAGAR FIXOS) */}
+      {/* ✅ MODAL DE CONFIRMAÇÃO (serve pra TODOS apagar/excluir/pagar/copiar) */}
       <ConfirmModal
         open={confirmOpen}
         title={confirmCfg.title}
