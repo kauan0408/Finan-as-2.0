@@ -23,7 +23,6 @@ import { useFinance } from "../App.jsx";
 
 const LS_KEY = "pwa_divisao_casa_v2";
 
-no proximo quero isso :
 const SUGESTOES_GASTOS = [
   "Aluguel",
   "Condomínio",
