@@ -1,20 +1,13 @@
 // ✅ Arquivo: src/pages/DivisaoCasaPage.jsx
-// ✅ Página: Divisão de Gastos da Casa (moradores editáveis + fixos + variáveis por mês + mês vira pelo diaPagamento do Perfil) + PDF
+// ✅ Página: Divisão de Gastos da Casa (moradores + fixos + variáveis por mês + navegação de mês) + PDF
 // ✅ Requer: npm i jspdf jspdf-autotable
 //
-// ✅ IMPORTANTE:
-// - Esta página USA o mesReferencia do seu App.jsx (que já vira pelo diaPagamento do Perfil).
-// - Gastos FIXOS ficam salvos e aparecem todo mês.
-// - Gastos VARIÁVEIS ficam salvos POR MÊS (água/luz/internet variando todo mês).
-// - Nome do morador dá pra trocar normalmente.
-// - Nº de moradores não buga: tem botões + / - e o input também funciona.
-//
-// ✅ AJUSTES (SEU PEDIDO AGORA):
-// - Tirado o textão “este mês está vindo blá blá blá…” (ficou clean).
-// - “Configurações” e “Pessoas” viraram MODAIS (você clica e abre no meio da tela).
-// - PDF: removeu VENCIMENTO, adicionou OBSERVAÇÕES e SEMPRE mostra FIXOS e VARIÁVEIS (sempre).
+// ✅ AJUSTES:
+// - Layout menos poluído: quase tudo foi para MODAIS.
+// - Bug do teclado: Modal foi movido PARA FORA do componente (não remonta a cada letra).
+// - PDF: sem vencimento, com observações, sempre fixos e variáveis.
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { useFinance } from "../App.jsx";
@@ -45,6 +38,72 @@ const SUGESTOES_GASTOS = [
   "Outros",
 ];
 
+/* =========================
+   ✅ MODAL (FORA DO COMPONENTE)
+   ========================= */
+function AppModal({ title, onClose, children }) {
+  return (
+    <div
+      className="modal-overlay"
+      onMouseDown={onClose}
+      onTouchStart={onClose}
+      role="dialog"
+      aria-modal="true"
+    >
+      <div
+        className="modal-card"
+        onMouseDown={(e) => e.stopPropagation()}
+        onTouchStart={(e) => e.stopPropagation()}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 10,
+          }}
+        >
+          <h3 style={{ margin: 0 }}>{title}</h3>
+
+          <button
+            type="button"
+            className="icon-btn"
+            onClick={onClose}
+            aria-label="Fechar"
+            title="Fechar"
+            style={{ width: "auto", padding: "8px 12px" }}
+          >
+            ✕
+          </button>
+        </div>
+
+        <div style={{ marginTop: 12 }}>{children}</div>
+
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "flex-end",
+            marginTop: 12,
+            gap: 8,
+          }}
+        >
+          <button
+            type="button"
+            className="toggle-btn"
+            onClick={onClose}
+            style={{ width: "auto" }}
+          >
+            Fechar
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* =========================
+   Helpers
+   ========================= */
 function safeJSONParse(v, fallback) {
   try {
     return JSON.parse(v);
@@ -173,21 +232,6 @@ function keepOnlyTwoMonths(porMes, realCurrentKey) {
   return next;
 }
 
-/**
- * Estrutura:
- * {
- *  casaNome,
- *  modoDivisao,
- *  moradoresCount,
- *  moradores: [{id,nome,percentual}],
- *  fixos: [{id,nome,valor,vencimento,responsavel,observacao}],
- *  porMes: {
- *    "YYYY-MM": {
- *      variaveis: [{id,nome,valor,vencimento,responsavel,observacao}]
- *    }
- *  }
- * }
- */
 const DEFAULT_STATE = {
   casaNome: "Gastos da Casa",
   modoDivisao: "igual", // "igual" | "percentual"
@@ -204,10 +248,9 @@ export default function DivisaoCasaPage() {
   const finance = useFinance() || {};
   const { profile, mesReferencia, mudarMesReferencia, setMesAuto } = finance;
 
-  // 🔎 mês que você está VISUALIZANDO (mesReferencia)
   const mesKey = useMemo(() => mesKeyFromRef(mesReferencia), [mesReferencia]);
 
-  // ✅ mês REAL (não depende de você voltar/avançar) — baseado no relógio + regra do diaPagamento
+  // ✅ mês REAL (pela regra do Perfil)
   const mesKeyReal = useMemo(() => {
     const today = new Date();
     const y = today.getFullYear();
@@ -269,14 +312,14 @@ export default function DivisaoCasaPage() {
 
   const [state, setState] = useState(() => DEFAULT_STATE);
 
-  // modal (seu “bagulho que clica e abre no meio da tela”)
-  const [modal, setModal] = useState(null); // "config" | "pessoas" | null
+  // ✅ Modais
+  const [modal, setModal] = useState(null); // "config" | "pessoas" | "passado" | "pdf" | null
 
   // form item
-  const [tipoGasto, setTipoGasto] = useState("variavel"); // "fixo" | "variavel"
+  const [tipoGasto, setTipoGasto] = useState("variavel");
   const [itemNome, setItemNome] = useState("");
   const [itemValor, setItemValor] = useState("");
-  const [itemVencimento, setItemVencimento] = useState(""); // continua existindo no dado (se você quiser usar depois)
+  const [itemVencimento, setItemVencimento] = useState(""); // guardado mas não vai pro PDF
   const [itemResponsavel, setItemResponsavel] = useState("");
   const [itemObs, setItemObs] = useState("");
 
@@ -284,16 +327,10 @@ export default function DivisaoCasaPage() {
   const [editId, setEditId] = useState(null);
   const [editTipo, setEditTipo] = useState("variavel");
 
-  // ====== persist helpers (evita bug por "state" antigo) ======
   function persist(updater) {
     setState((prev) => {
       let next = typeof updater === "function" ? updater(prev) : updater;
-
-      next = {
-        ...next,
-        porMes: keepOnlyTwoMonths(next.porMes, mesKeyReal),
-      };
-
+      next = { ...next, porMes: keepOnlyTwoMonths(next.porMes, mesKeyReal) };
       try {
         localStorage.setItem(LS_KEY, JSON.stringify(next));
       } catch (e) {
@@ -308,25 +345,19 @@ export default function DivisaoCasaPage() {
     const raw = safeJSONParse(localStorage.getItem(LS_KEY), null);
     if (raw && typeof raw === "object") {
       const merged = { ...DEFAULT_STATE, ...raw };
-
       merged.moradoresCount = clamp(merged.moradoresCount ?? 2, 1, 5);
       merged.moradores = ensureMoradores(merged.moradores, merged.moradoresCount);
       merged.fixos = Array.isArray(merged.fixos) ? merged.fixos : [];
       merged.porMes = merged.porMes && typeof merged.porMes === "object" ? merged.porMes : {};
-
       merged.porMes = keepOnlyTwoMonths(merged.porMes, mesKeyReal);
-
       setState(merged);
     } else {
-      setState({
-        ...DEFAULT_STATE,
-        porMes: keepOnlyTwoMonths(DEFAULT_STATE.porMes, mesKeyReal),
-      });
+      setState({ ...DEFAULT_STATE, porMes: keepOnlyTwoMonths(DEFAULT_STATE.porMes, mesKeyReal) });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // garante que o mês VISUALIZADO exista no porMes (sem quebrar navegação)
+  // garante mês visualizado
   useEffect(() => {
     if (!mesKey) return;
     persist((prev) => {
@@ -338,21 +369,15 @@ export default function DivisaoCasaPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mesKey]);
 
-  // ✅ quando o mês REAL muda, limpa automático mantendo só mês real e anterior
+  // muda mês real => retenção
   useEffect(() => {
-    persist((prev) => ({
-      ...prev,
-      porMes: keepOnlyTwoMonths(prev.porMes, mesKeyReal),
-    }));
+    persist((prev) => ({ ...prev, porMes: keepOnlyTwoMonths(prev.porMes, mesKeyReal) }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mesKeyReal]);
 
-  // ====== derivados ======
+  // derivados
   const moradores = useMemo(() => ensureMoradores(state.moradores, state.moradoresCount), [state.moradores, state.moradoresCount]);
-
   const percentuaisNormalizados = useMemo(() => normalizePercentuais(state.modoDivisao, moradores), [state.modoDivisao, moradores]);
-
-  const somaPercentuaisDigitados = useMemo(() => moradores.reduce((acc, m) => acc + Number(m?.percentual || 0), 0), [moradores]);
 
   const fixos = useMemo(() => (Array.isArray(state.fixos) ? state.fixos : []), [state.fixos]);
 
@@ -373,45 +398,13 @@ export default function DivisaoCasaPage() {
   const totalVariaveis = useMemo(() => variaveisMes.reduce((acc, it) => acc + Number(it?.valor || 0), 0), [variaveisMes]);
   const totalGeral = useMemo(() => totalFixos + totalVariaveis, [totalFixos, totalVariaveis]);
 
-  const totalVariaveisMesPassado = useMemo(
-    () => variaveisMesPassado.reduce((acc, it) => acc + Number(it?.valor || 0), 0),
-    [variaveisMesPassado]
-  );
-
   const valorPorPessoa = useMemo(() => {
     return moradores.map((_, idx) => (totalGeral * (percentuaisNormalizados[idx] || 0)) / 100);
   }, [moradores, totalGeral, percentuaisNormalizados]);
 
-  // ====== setters principais ======
-  function setCasaNome(v) {
-    persist((prev) => ({ ...prev, casaNome: String(v || "") }));
-  }
-
-  function setMoradoresCount(v) {
-    const c = clamp(v, 1, 5);
-    persist((prev) => {
-      let nextMoradores = ensureMoradores(prev.moradores, c);
-
-      if (prev.modoDivisao === "igual") {
-        const eq = 100 / c;
-        nextMoradores = nextMoradores.map((m) => ({ ...m, percentual: eq }));
-      } else {
-        const sum = nextMoradores.reduce((acc, m) => acc + Number(m?.percentual || 0), 0);
-        if (sum <= 0) {
-          const eq = 100 / c;
-          nextMoradores = nextMoradores.map((m) => ({ ...m, percentual: eq }));
-        }
-      }
-
-      return { ...prev, moradoresCount: c, moradores: nextMoradores };
-    });
-  }
-
-  function incMoradores(delta) {
-    setMoradoresCount(clamp(Number(state.moradoresCount) + delta, 1, 5));
-  }
-
-  function setModoDivisao(v) {
+  // setters
+  const setCasaNome = useCallback((v) => persist((prev) => ({ ...prev, casaNome: String(v || "") })), []);
+  const setModoDivisao = useCallback((v) => {
     const modo = v === "percentual" ? "percentual" : "igual";
     persist((prev) => {
       const c = clamp(prev.moradoresCount ?? 2, 1, 5);
@@ -427,9 +420,23 @@ export default function DivisaoCasaPage() {
           nextMoradores = nextMoradores.map((m) => ({ ...m, percentual: eq }));
         }
       }
-
       return { ...prev, modoDivisao: modo, moradores: nextMoradores };
     });
+  }, []);
+
+  function setMoradoresCount(v) {
+    const c = clamp(v, 1, 5);
+    persist((prev) => {
+      let nextMoradores = ensureMoradores(prev.moradores, c);
+      if (prev.modoDivisao === "igual") {
+        const eq = 100 / c;
+        nextMoradores = nextMoradores.map((m) => ({ ...m, percentual: eq }));
+      }
+      return { ...prev, moradoresCount: c, moradores: nextMoradores };
+    });
+  }
+  function incMoradores(delta) {
+    setMoradoresCount(clamp(Number(state.moradoresCount) + delta, 1, 5));
   }
 
   function setMoradorNome(idx, nome) {
@@ -453,7 +460,7 @@ export default function DivisaoCasaPage() {
     });
   }
 
-  // ====== itens (fixos/variáveis) ======
+  // itens
   function resetForm() {
     setTipoGasto("variavel");
     setItemNome("");
@@ -469,7 +476,6 @@ export default function DivisaoCasaPage() {
     setEditId(it.id);
     setEditTipo(tipo);
     setTipoGasto(tipo);
-
     setItemNome(it.nome || "");
     setItemValor(String(it.valor ?? ""));
     setItemVencimento(it.vencimento || "");
@@ -483,7 +489,6 @@ export default function DivisaoCasaPage() {
         const nextFixos = (Array.isArray(prev.fixos) ? prev.fixos : []).filter((it) => it.id !== id);
         return { ...prev, fixos: nextFixos };
       }
-
       const porMes = prev.porMes && typeof prev.porMes === "object" ? { ...prev.porMes } : {};
       const reg = porMes[mesKey] || { variaveis: [] };
       const nextVar = (Array.isArray(reg.variaveis) ? reg.variaveis : []).filter((it) => it.id !== id);
@@ -501,20 +506,14 @@ export default function DivisaoCasaPage() {
     const resp = String(itemResponsavel || "").trim();
     const obs = String(itemObs || "").trim();
 
-    if (!nome) {
-      alert("Digite o nome do gasto (ex.: Água).");
-      return;
-    }
-    if (!Number.isFinite(valor) || valor < 0) {
-      alert("Digite um valor válido (ex.: 120,50).");
-      return;
-    }
+    if (!nome) return alert("Digite o nome do gasto (ex.: Água).");
+    if (!Number.isFinite(valor) || valor < 0) return alert("Digite um valor válido (ex.: 120,50).");
 
     const payload = {
       id: editId || uuid(),
       nome,
       valor,
-      vencimento: venc, // guardado (mesmo não indo pro PDF)
+      vencimento: venc,
       responsavel: resp,
       observacao: obs,
     };
@@ -540,11 +539,8 @@ export default function DivisaoCasaPage() {
   }
 
   function copiarVariaveisMesAnterior() {
-    const ok = window.confirm(
-      "Copiar os gastos VARIÁVEIS do mês anterior para este mês?\n(Água, luz, etc. Você pode editar depois.)"
-    );
+    const ok = window.confirm("Copiar os gastos VARIÁVEIS do mês anterior para este mês?");
     if (!ok) return;
-
     const prevKey = prevMonthKey(mesKey);
     if (!prevKey) return;
 
@@ -556,7 +552,6 @@ export default function DivisaoCasaPage() {
       const cloned = prevVar.map((it) => ({ ...it, id: uuid() }));
       const reg = porMes[mesKey] || { variaveis: [] };
       porMes[mesKey] = { ...reg, variaveis: cloned };
-
       return { ...prev, porMes };
     });
   }
@@ -576,7 +571,7 @@ export default function DivisaoCasaPage() {
   }
 
   function limparTudo() {
-    const ok = window.confirm("Tem certeza que deseja apagar TODOS os dados (fixos + todos os meses + moradores)?");
+    const ok = window.confirm("Apagar TODOS os dados da Casa?");
     if (!ok) return;
     try {
       localStorage.removeItem(LS_KEY);
@@ -585,18 +580,17 @@ export default function DivisaoCasaPage() {
     resetForm();
   }
 
-  // ✅ botões de navegação por mês dentro da Casa
+  // navegação
   function voltarUmMes() {
     if (typeof setMesAuto === "function") setMesAuto(false);
     if (typeof mudarMesReferencia === "function") mudarMesReferencia(-1);
   }
-
   function avancarUmMes() {
     if (typeof setMesAuto === "function") setMesAuto(false);
     if (typeof mudarMesReferencia === "function") mudarMesReferencia(+1);
   }
 
-  // ====== PDF (SEM VENCIMENTO, COM OBS, SEMPRE FIXOS+VARIÁVEIS) ======
+  // PDF
   function gerarPDF() {
     if (!jsPDF || !autoTable) {
       alert("PDF indisponível. Instale: npm i jspdf jspdf-autotable");
@@ -604,19 +598,15 @@ export default function DivisaoCasaPage() {
     }
 
     const doc = new jsPDF({ unit: "pt", format: "a4" });
-
-    const titulo = "DIVISÃO DE GASTOS DA CASA";
-    const sub1 = `${state.casaNome || "Gastos da Casa"} — Mês: ${monthLabel(mesKey)}`;
-
     doc.setFont("helvetica", "bold");
     doc.setFontSize(14);
-    doc.text(titulo, 40, 50);
+    doc.text("DIVISÃO DE GASTOS DA CASA", 40, 50);
 
     doc.setFont("helvetica", "normal");
     doc.setFontSize(11);
-    doc.text(sub1, 40, 70);
+    doc.text(`${state.casaNome || "Gastos da Casa"} — Mês: ${monthLabel(mesKey)}`, 40, 70);
 
-    // ✅ Sempre sem vencimento, sempre com observações e sempre com fixos+variáveis
+    // ✅ SEM vencimento, ✅ COM obs, ✅ SEMPRE fixos+variáveis
     const cols = ["Tipo", "Gasto", "Valor", "Responsável", "Obs."];
 
     const linhasFixos = fixos.map((it) => [
@@ -636,29 +626,20 @@ export default function DivisaoCasaPage() {
     ]);
 
     const body = [
-      ...(linhasFixos.length
-        ? linhasFixos
-        : [["Fixo", "(Sem fixos cadastrados)", "", "", ""]]),
-      ...(linhasVar.length
-        ? linhasVar
-        : [["Variável", "(Sem variáveis deste mês)", "", "", ""]]),
+      ...(linhasFixos.length ? linhasFixos : [["Fixo", "(Sem fixos cadastrados)", "", "", ""]]),
+      ...(linhasVar.length ? linhasVar : [["Variável", "(Sem variáveis deste mês)", "", "", ""]]),
     ];
 
     autoTable(doc, {
       startY: 90,
       head: [cols],
       body,
-      styles: {
-        font: "helvetica",
-        fontSize: 9,
-        cellPadding: 4,
-        overflow: "linebreak",
-      },
+      styles: { font: "helvetica", fontSize: 9, cellPadding: 4, overflow: "linebreak" },
       headStyles: { fontStyle: "bold" },
       margin: { left: 40, right: 40 },
     });
 
-    let y = doc.lastAutoTable ? doc.lastAutoTable.finalY + 18 : 140;
+    let y = doc.lastAutoTable ? doc.lastAutoTable.finalY + 18 : 150;
 
     doc.setFont("helvetica", "bold");
     doc.setFontSize(12);
@@ -669,12 +650,9 @@ export default function DivisaoCasaPage() {
     doc.setFontSize(11);
     doc.text(`Total FIXOS: ${formatBRL(totalFixos)}`, 40, y);
     y += 14;
-    doc.text(`Total VARIÁVEIS (${monthLabel(mesKey)}): ${formatBRL(totalVariaveis)}`, 40, y);
+    doc.text(`Total VARIÁVEIS: ${formatBRL(totalVariaveis)}`, 40, y);
     y += 14;
     doc.text(`Total GERAL: ${formatBRL(totalGeral)}`, 40, y);
-    y += 18;
-
-    doc.text(`Modo de divisão: ${state.modoDivisao === "percentual" ? "Percentual" : "Igual"}`, 40, y);
     y += 18;
 
     autoTable(doc, {
@@ -710,7 +688,6 @@ export default function DivisaoCasaPage() {
       }
 
       const nome = m.nome || `Morador ${i + 1}`;
-
       doc.text(nome, 40, y);
       y += 10;
 
@@ -718,10 +695,8 @@ export default function DivisaoCasaPage() {
       doc.text("Assinatura", 40 + lineW + 10, y + 4);
 
       y += 22;
-
       doc.text("Data:", 40, y);
       doc.line(80, y + 2, 200, y + 2);
-
       y += 24;
     });
 
@@ -729,109 +704,228 @@ export default function DivisaoCasaPage() {
     doc.save(fileName);
   }
 
-  // ====== modal helper ======
-  function Modal({ title, children, onClose }) {
-    return (
-      <div className="modal-overlay" onClick={onClose}>
-        <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-            <h3 style={{ margin: 0 }}>{title}</h3>
-            <button type="button" className="icon-btn" onClick={onClose} aria-label="Fechar" title="Fechar" style={{ width: "auto", padding: "8px 12px" }}>
-              ✕
-            </button>
-          </div>
-          <div style={{ marginTop: 12 }}>{children}</div>
-        </div>
-      </div>
-    );
-  }
-
-  // ====== UI ======
+  // UI principal (bem limpa)
   return (
     <div className="page">
-      <h2 className="page-title">🏠 Casa — Divisão de Gastos</h2>
+      <h2 className="page-title">🏠 Casa</h2>
 
-      {/* topo clean */}
       <div className="card">
         <div className="filters-grid">
           <div className="field">
-            <label>Mês (na tela)</label>
+            <label>Mês</label>
             <input type="text" value={monthLabel(mesKey)} readOnly />
           </div>
-
           <div className="field">
-            <label>Dia de pagamento (Perfil)</label>
-            <input type="text" value={String(profile?.diaPagamento || "")} readOnly placeholder="Defina no Perfil" />
+            <label>Total do mês</label>
+            <input type="text" value={formatBRL(totalGeral)} readOnly />
           </div>
         </div>
 
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
           <button type="button" className="chip" style={{ width: "auto" }} onClick={voltarUmMes}>
-            ◀ Voltar 1 mês
+            ◀ Mês anterior
           </button>
           <button type="button" className="chip" style={{ width: "auto" }} onClick={avancarUmMes}>
-            Avançar 1 mês ▶
+            Próximo mês ▶
           </button>
 
           <button type="button" className="chip" style={{ width: "auto", marginLeft: "auto" }} onClick={() => setModal("config")}>
-            ⚙️ Configurações
+            ⚙️ Config
           </button>
           <button type="button" className="chip" style={{ width: "auto" }} onClick={() => setModal("pessoas")}>
             👥 Pessoas
           </button>
+          <button type="button" className="chip" style={{ width: "auto" }} onClick={() => setModal("passado")}>
+            🧾 Mês passado
+          </button>
+          <button type="button" className="chip" style={{ width: "auto" }} onClick={() => setModal("pdf")}>
+            📄 PDF
+          </button>
         </div>
 
         <div className="muted small" style={{ marginTop: 10 }}>
-          Retenção automática: fica salvo <b>{monthLabel(mesKeyReal)}</b> e <b>{monthLabel(prevRealKey)}</b>.
+          Salva só 2 meses: <b>{monthLabel(mesKeyReal)}</b> e <b>{monthLabel(prevRealKey)}</b>.
         </div>
       </div>
 
-      {/* ✅ Contas do mês passado (somente do mês passado) */}
+      {/* Adicionar/Editar */}
       <div className="card mt">
-        <h3 style={{ marginBottom: 8 }}>Contas do mês passado</h3>
-        <div className="muted small" style={{ marginBottom: 10 }}>
-          Mostrando variáveis do mês passado real: <b>{monthLabel(prevRealKey)}</b>
+        <h3 style={{ marginBottom: 8 }}>{editId ? "Editar gasto" : "Adicionar gasto"}</h3>
+
+        <div className="filters-grid">
+          <div className="field">
+            <label>Tipo</label>
+            <select value={tipoGasto} onChange={(e) => setTipoGasto(e.target.value === "fixo" ? "fixo" : "variavel")} disabled={!!editId}>
+              <option value="variavel">Variável</option>
+              <option value="fixo">Fixo</option>
+            </select>
+          </div>
+
+          <div className="field">
+            <label>Sugestões</label>
+            <select value={itemNome} onChange={(e) => setItemNome(e.target.value)}>
+              <option value="">Selecione…</option>
+              {SUGESTOES_GASTOS.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
-        {variaveisMesPassado.length === 0 ? (
-          <p className="muted small">Nenhuma conta variável encontrada no mês passado.</p>
+        <div className="field">
+          <label>Nome</label>
+          <input value={itemNome} onChange={(e) => setItemNome(e.target.value)} placeholder="Ex.: Água" />
+        </div>
+
+        <div className="filters-grid">
+          <div className="field">
+            <label>Valor</label>
+            <input value={itemValor} onChange={(e) => setItemValor(e.target.value)} placeholder="Ex.: 120,50" inputMode="decimal" />
+          </div>
+          <div className="field">
+            <label>Vencimento (opcional)</label>
+            <input type="date" value={itemVencimento} onChange={(e) => setItemVencimento(e.target.value)} />
+          </div>
+        </div>
+
+        <div className="filters-grid">
+          <div className="field">
+            <label>Responsável</label>
+            <input value={itemResponsavel} onChange={(e) => setItemResponsavel(e.target.value)} placeholder="Quem paga" />
+          </div>
+          <div className="field">
+            <label>Observação</label>
+            <input value={itemObs} onChange={(e) => setItemObs(e.target.value)} placeholder="Ex.: veio mais alto" />
+          </div>
+        </div>
+
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button type="button" className="primary-btn" style={{ width: "auto", padding: "10px 12px" }} onClick={upsertItem}>
+            {editId ? "Salvar" : "Adicionar"}
+          </button>
+
+          {editId && (
+            <button type="button" className="chip" style={{ width: "auto" }} onClick={resetForm}>
+              Cancelar
+            </button>
+          )}
+
+          <button type="button" className="chip" style={{ width: "auto", marginLeft: "auto" }} onClick={limparTudo}>
+            Apagar tudo
+          </button>
+        </div>
+      </div>
+
+      {/* Fixos (lista compacta) */}
+      <div className="card mt">
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+          <h3 style={{ margin: 0 }}>Fixos</h3>
+          <div className="muted small">
+            Total: <b>{formatBRL(totalFixos)}</b>
+          </div>
+        </div>
+
+        {fixos.length === 0 ? (
+          <p className="muted small" style={{ marginTop: 10 }}>
+            Nenhum fixo cadastrado.
+          </p>
         ) : (
-          <>
-            <ul className="list">
-              {variaveisMesPassado.map((it) => (
-                <li key={it.id} className="list-item">
-                  <div style={{ flex: 1 }}>
-                    <div className="muted">
-                      <b>{it.nome}</b> — {formatBRL(it.valor || 0)}
-                      {it.responsavel ? (
-                        <span className="badge" style={{ marginLeft: 8 }}>
-                          Resp: {it.responsavel}
-                        </span>
-                      ) : null}
-                    </div>
-
-                    {it.observacao ? (
-                      <div className="muted small" style={{ marginTop: 4 }}>
-                        {it.observacao}
-                      </div>
-                    ) : null}
+          <ul className="list mt">
+            {fixos.map((it) => (
+              <li key={it.id} className="list-item">
+                <div style={{ flex: 1 }}>
+                  <div className="muted">
+                    <b>{it.nome}</b> — {formatBRL(it.valor || 0)}
+                    {it.responsavel ? <span className="badge" style={{ marginLeft: 8 }}>Resp: {it.responsavel}</span> : null}
                   </div>
-                </li>
-              ))}
-            </ul>
+                  {it.observacao ? <div className="muted small" style={{ marginTop: 4 }}>{it.observacao}</div> : null}
+                </div>
 
-            <div className="mt">
-              <div className="muted small">
-                Total variáveis (mês passado): <b>{formatBRL(totalVariaveisMesPassado)}</b>
-              </div>
-            </div>
-          </>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button type="button" className="chip" style={{ width: "auto" }} onClick={() => startEdit(it, "fixo")}>
+                    Editar
+                  </button>
+                  <button type="button" className="chip" style={{ width: "auto" }} onClick={() => removeItem(it.id, "fixo")}>
+                    Excluir
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
         )}
       </div>
 
-      {/* modal Configurações */}
+      {/* Variáveis (lista compacta) */}
+      <div className="card mt">
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+          <h3 style={{ margin: 0 }}>Variáveis — {monthLabel(mesKey)}</h3>
+          <div className="muted small">
+            Total: <b>{formatBRL(totalVariaveis)}</b>
+          </div>
+        </div>
+
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+          <button type="button" className="chip" style={{ width: "auto" }} onClick={copiarVariaveisMesAnterior}>
+            Copiar mês anterior
+          </button>
+          <button type="button" className="chip" style={{ width: "auto" }} onClick={limparSomenteVariaveisDoMes}>
+            Limpar variáveis
+          </button>
+        </div>
+
+        {variaveisMes.length === 0 ? (
+          <p className="muted small" style={{ marginTop: 10 }}>
+            Nenhuma variável cadastrada.
+          </p>
+        ) : (
+          <ul className="list mt">
+            {variaveisMes.map((it) => (
+              <li key={it.id} className="list-item">
+                <div style={{ flex: 1 }}>
+                  <div className="muted">
+                    <b>{it.nome}</b> — {formatBRL(it.valor || 0)}
+                    {it.responsavel ? <span className="badge" style={{ marginLeft: 8 }}>Resp: {it.responsavel}</span> : null}
+                  </div>
+                  {it.observacao ? <div className="muted small" style={{ marginTop: 4 }}>{it.observacao}</div> : null}
+                </div>
+
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button type="button" className="chip" style={{ width: "auto" }} onClick={() => startEdit(it, "variavel")}>
+                    Editar
+                  </button>
+                  <button type="button" className="chip" style={{ width: "auto" }} onClick={() => removeItem(it.id, "variavel")}>
+                    Excluir
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {/* Quanto cada um paga (compacto) */}
+      <div className="card mt">
+        <h3 style={{ marginBottom: 8 }}>Quanto cada um paga</h3>
+        <ul className="list">
+          {moradores.map((m, i) => (
+            <li key={m.id} className="list-item">
+              <div className="muted">
+                <b>{m.nome || `Morador ${i + 1}`}</b> — {(percentuaisNormalizados[i] || 0).toFixed(2)}% →{" "}
+                <span className="number">{formatBRL(valorPorPessoa[i] || 0)}</span>
+              </div>
+            </li>
+          ))}
+        </ul>
+        <div className="muted small" style={{ marginTop: 8 }}>
+          Total geral: <b>{formatBRL(totalGeral)}</b>
+        </div>
+      </div>
+
+      {/* ============ MODAIS ============ */}
       {modal === "config" && (
-        <Modal title="⚙️ Configurações" onClose={() => setModal(null)}>
+        <AppModal title="⚙️ Configurações" onClose={() => setModal(null)}>
           <div className="field">
             <label>Nome da casa</label>
             <input value={state.casaNome} onChange={(e) => setCasaNome(e.target.value)} placeholder="Ex.: República do Centro" />
@@ -844,9 +938,7 @@ export default function DivisaoCasaPage() {
                 <button type="button" className="chip" style={{ width: "auto" }} onClick={() => incMoradores(-1)}>
                   −
                 </button>
-
                 <input type="number" min={1} max={5} value={Number(state.moradoresCount)} onChange={(e) => setMoradoresCount(e.target.value)} />
-
                 <button type="button" className="chip" style={{ width: "auto" }} onClick={() => incMoradores(+1)}>
                   +
                 </button>
@@ -856,35 +948,30 @@ export default function DivisaoCasaPage() {
             <div className="field">
               <label>Modo de divisão</label>
               <select value={state.modoDivisao} onChange={(e) => setModoDivisao(e.target.value)}>
-                <option value="igual">Igual (divide por partes iguais)</option>
-                <option value="percentual">Percentual (cada um paga uma %)</option>
+                <option value="igual">Igual</option>
+                <option value="percentual">Percentual</option>
               </select>
-
-              {state.modoDivisao === "percentual" && (
-                <div className="muted small" style={{ marginTop: 6 }}>
-                  Soma digitada (o app normaliza): <b>{somaPercentuaisDigitados.toFixed(2)}%</b>
-                </div>
-              )}
             </div>
           </div>
-
-          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
-            <button type="button" className="toggle-btn" onClick={() => setModal(null)} style={{ width: "auto" }}>
-              Fechar
-            </button>
-          </div>
-        </Modal>
+        </AppModal>
       )}
 
-      {/* modal Pessoas */}
       {modal === "pessoas" && (
-        <Modal title="👥 Pessoas" onClose={() => setModal(null)}>
+        <AppModal title="👥 Pessoas" onClose={() => setModal(null)}>
           {moradores.map((m, idx) => (
             <div key={m.id} className="audio-card" style={{ padding: 12, marginBottom: 10 }}>
               <div className="filters-grid">
                 <div className="field">
                   <label>Nome</label>
-                  <input value={m.nome} onChange={(e) => setMoradorNome(idx, e.target.value)} placeholder={`Morador ${idx + 1}`} />
+                  <input
+                    value={m.nome}
+                    onChange={(e) => setMoradorNome(idx, e.target.value)}
+                    placeholder={`Morador ${idx + 1}`}
+                    inputMode="text"
+                    autoCorrect="off"
+                    autoCapitalize="words"
+                    spellCheck={false}
+                  />
                 </div>
 
                 <div className="field">
@@ -904,232 +991,46 @@ export default function DivisaoCasaPage() {
               </div>
             </div>
           ))}
-
-          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
-            <button type="button" className="toggle-btn" onClick={() => setModal(null)} style={{ width: "auto" }}>
-              Fechar
-            </button>
-          </div>
-        </Modal>
+        </AppModal>
       )}
 
-      {/* adicionar/editar gasto */}
-      <div className="card mt">
-        <h3 style={{ marginBottom: 8 }}>{editId ? "Editar gasto" : "Adicionar gasto (fixo ou variável)"}</h3>
-
-        <div className="filters-grid">
-          <div className="field">
-            <label>Tipo</label>
-            <select value={tipoGasto} onChange={(e) => setTipoGasto(e.target.value === "fixo" ? "fixo" : "variavel")} disabled={!!editId}>
-              <option value="variavel">Variável (muda todo mês: água, luz…)</option>
-              <option value="fixo">Fixo (repete todo mês: aluguel, condomínio…)</option>
-            </select>
-            <div className="muted small" style={{ marginTop: 6 }}>
-              {tipoGasto === "fixo" ? "Fixo aparece em TODOS os meses." : `Variável fica SOMENTE no mês ${monthLabel(mesKey)}.`}
-            </div>
+      {modal === "passado" && (
+        <AppModal title="🧾 Contas do mês passado" onClose={() => setModal(null)}>
+          <div className="muted small" style={{ marginBottom: 10 }}>
+            Variáveis do mês passado: <b>{monthLabel(prevRealKey)}</b>
           </div>
 
-          <div className="field">
-            <label>Sugestões</label>
-            <select value={itemNome} onChange={(e) => setItemNome(e.target.value)}>
-              <option value="">Selecione…</option>
-              {SUGESTOES_GASTOS.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
+          {variaveisMesPassado.length === 0 ? (
+            <p className="muted small">Nenhuma variável encontrada no mês passado.</p>
+          ) : (
+            <ul className="list">
+              {variaveisMesPassado.map((it) => (
+                <li key={it.id} className="list-item">
+                  <div style={{ flex: 1 }}>
+                    <div className="muted">
+                      <b>{it.nome}</b> — {formatBRL(it.valor || 0)}
+                      {it.responsavel ? <span className="badge" style={{ marginLeft: 8 }}>Resp: {it.responsavel}</span> : null}
+                    </div>
+                    {it.observacao ? <div className="muted small" style={{ marginTop: 4 }}>{it.observacao}</div> : null}
+                  </div>
+                </li>
               ))}
-            </select>
-          </div>
-        </div>
-
-        <div className="field">
-          <label>Nome do gasto</label>
-          <input value={itemNome} onChange={(e) => setItemNome(e.target.value)} placeholder="Ex.: Água" />
-        </div>
-
-        <div className="filters-grid">
-          <div className="field">
-            <label>Valor (R$)</label>
-            <input value={itemValor} onChange={(e) => setItemValor(e.target.value)} placeholder="Ex.: 120,50" inputMode="decimal" />
-          </div>
-
-          <div className="field">
-            <label>Vencimento (opcional)</label>
-            <input type="date" value={itemVencimento} onChange={(e) => setItemVencimento(e.target.value)} />
-          </div>
-        </div>
-
-        <div className="filters-grid">
-          <div className="field">
-            <label>Responsável</label>
-            <input value={itemResponsavel} onChange={(e) => setItemResponsavel(e.target.value)} placeholder="Quem vai pagar / responsável" />
-          </div>
-
-          <div className="field">
-            <label>Observação</label>
-            <input value={itemObs} onChange={(e) => setItemObs(e.target.value)} placeholder="Ex.: veio mais alto esse mês" />
-          </div>
-        </div>
-
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button type="button" className="primary-btn" style={{ width: "auto", padding: "10px 12px" }} onClick={upsertItem}>
-            {editId ? "Salvar edição" : "Adicionar"}
-          </button>
-
-          {editId && (
-            <button type="button" className="chip" style={{ width: "auto" }} onClick={resetForm}>
-              Cancelar edição
-            </button>
+            </ul>
           )}
+        </AppModal>
+      )}
 
-          <button type="button" className="chip" style={{ width: "auto", marginLeft: "auto" }} onClick={limparTudo}>
-            Apagar tudo
+      {modal === "pdf" && (
+        <AppModal title="📄 Gerar PDF" onClose={() => setModal(null)}>
+          <div className="muted small" style={{ marginBottom: 10 }}>
+            O PDF sai com <b>Fixos + Variáveis</b>, <b>Observações</b> e assinaturas. (Sem vencimento)
+          </div>
+
+          <button type="button" className="primary-btn" onClick={gerarPDF}>
+            Gerar PDF com assinaturas
           </button>
-        </div>
-      </div>
-
-      {/* fixos */}
-      <div className="card mt">
-        <h3 style={{ marginBottom: 8 }}>Gastos FIXOS</h3>
-
-        {fixos.length === 0 ? (
-          <p className="muted small">Nenhum gasto fixo cadastrado ainda.</p>
-        ) : (
-          <ul className="list">
-            {fixos.map((it) => (
-              <li key={it.id} className="list-item">
-                <div style={{ flex: 1 }}>
-                  <div className="muted">
-                    <b>{it.nome}</b> — {formatBRL(it.valor || 0)}
-                    {it.responsavel ? (
-                      <span className="badge" style={{ marginLeft: 8 }}>
-                        Resp: {it.responsavel}
-                      </span>
-                    ) : null}
-                  </div>
-
-                  {it.observacao ? (
-                    <div className="muted small" style={{ marginTop: 4 }}>
-                      {it.observacao}
-                    </div>
-                  ) : null}
-                </div>
-
-                <div style={{ display: "flex", gap: 8 }}>
-                  <button type="button" className="chip" style={{ width: "auto" }} onClick={() => startEdit(it, "fixo")}>
-                    Editar
-                  </button>
-                  <button type="button" className="chip" style={{ width: "auto" }} onClick={() => removeItem(it.id, "fixo")}>
-                    Excluir
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-
-        <div className="mt">
-          <div className="muted small">
-            Total fixos: <b>{formatBRL(totalFixos)}</b>
-          </div>
-        </div>
-      </div>
-
-      {/* variáveis */}
-      <div className="card mt">
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-          <h3 style={{ marginBottom: 0 }}>Gastos VARIÁVEIS — {monthLabel(mesKey)}</h3>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <button type="button" className="chip" style={{ width: "auto" }} onClick={copiarVariaveisMesAnterior}>
-              Copiar mês anterior
-            </button>
-            <button type="button" className="chip" style={{ width: "auto" }} onClick={limparSomenteVariaveisDoMes}>
-              Limpar variáveis do mês
-            </button>
-          </div>
-        </div>
-
-        {variaveisMes.length === 0 ? (
-          <p className="muted small" style={{ marginTop: 10 }}>
-            Nenhum gasto variável cadastrado para este mês ainda.
-          </p>
-        ) : (
-          <ul className="list mt">
-            {variaveisMes.map((it) => (
-              <li key={it.id} className="list-item">
-                <div style={{ flex: 1 }}>
-                  <div className="muted">
-                    <b>{it.nome}</b> — {formatBRL(it.valor || 0)}
-                    {it.responsavel ? (
-                      <span className="badge" style={{ marginLeft: 8 }}>
-                        Resp: {it.responsavel}
-                      </span>
-                    ) : null}
-                  </div>
-
-                  {it.observacao ? (
-                    <div className="muted small" style={{ marginTop: 4 }}>
-                      {it.observacao}
-                    </div>
-                  ) : null}
-                </div>
-
-                <div style={{ display: "flex", gap: 8 }}>
-                  <button type="button" className="chip" style={{ width: "auto" }} onClick={() => startEdit(it, "variavel")}>
-                    Editar
-                  </button>
-                  <button type="button" className="chip" style={{ width: "auto" }} onClick={() => removeItem(it.id, "variavel")}>
-                    Excluir
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-
-        <div className="mt">
-          <div className="muted small">
-            Total variáveis ({monthLabel(mesKey)}): <b>{formatBRL(totalVariaveis)}</b>
-          </div>
-        </div>
-      </div>
-
-      {/* quanto cada um paga */}
-      <div className="card mt">
-        <h3 style={{ marginBottom: 8 }}>Quanto cada um paga (fixos + variáveis do mês)</h3>
-
-        <ul className="list">
-          {moradores.map((m, i) => (
-            <li key={m.id} className="list-item">
-              <div className="muted">
-                <b>{m.nome || `Morador ${i + 1}`}</b> — {(percentuaisNormalizados[i] || 0).toFixed(2)}% →{" "}
-                <span className="number">{formatBRL(valorPorPessoa[i] || 0)}</span>
-              </div>
-            </li>
-          ))}
-        </ul>
-
-        <div className="mt">
-          <div className="muted small">
-            Total geral: <b>{formatBRL(totalGeral)}</b> (Fixos: {formatBRL(totalFixos)} + Variáveis: {formatBRL(totalVariaveis)})
-          </div>
-        </div>
-      </div>
-
-      {/* PDF */}
-      <div className="card mt">
-        <h3 style={{ marginBottom: 8 }}>Gerar PDF</h3>
-
-        <button type="button" className="primary-btn" onClick={gerarPDF}>
-          📄 Gerar PDF com assinaturas
-        </button>
-
-        <div className="muted small" style={{ marginTop: 8 }}>
-          O PDF sai com: <b>Fixos + Variáveis</b>, <b>Observações</b>, totais, quanto cada um paga e linhas de assinatura.
-          <br />
-          (Vencimento foi removido do PDF.)
-        </div>
-      </div>
+        </AppModal>
+      )}
     </div>
   );
 }
