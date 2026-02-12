@@ -93,7 +93,7 @@ export default function ReservaPage() {
   const [delLocalId, setDelLocalId] = useState("");
   const [delTyping, setDelTyping] = useState("");
 
-  // Modais principais (agora só eles — sem duplicar formulário na tela)
+  // Modais principais
   const [metaOpen, setMetaOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [retOpen, setRetOpen] = useState(false);
@@ -474,41 +474,66 @@ export default function ReservaPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locaisAtivos.length]);
 
-  // Estilos leves (azul mais claro, mantendo azul)
-  const primarySoftBlue = {
-    background: "rgba(59,130,246,.18)", // azul claro
+  // Azul mais claro mantendo azul
+  const softBlue = {
+    background: "rgba(59,130,246,.18)",
     border: "1px solid rgba(59,130,246,.35)",
-    color: "rgba(255,255,255,.95)",
+    color: "rgba(255,255,255,.96)",
   };
 
-  const primarySoftBlueStrong = {
+  const softBlueStrong = {
     background: "rgba(59,130,246,.22)",
     border: "1px solid rgba(59,130,246,.45)",
     color: "rgba(255,255,255,.98)",
   };
 
+  // ✅ PADRÃO DOS BOTÕES: todos do mesmo tamanho, alinhados em “quadrinho”
+  const actionPanelStyle = {
+    marginTop: 10,
+    padding: 12,
+    borderRadius: 16,
+    border: "1px solid rgba(255,255,255,.08)",
+    background: "rgba(255,255,255,.03)",
+  };
+
+  const actionGridStyle = {
+    display: "grid",
+    gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
+    gap: 10,
+  };
+
+  const actionBtnBase = {
+    width: "100%",
+    height: 44,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    borderRadius: 14,
+    fontWeight: 800,
+    letterSpacing: ".2px",
+    whiteSpace: "nowrap",
+  };
+
   return (
     <div className="page">
-      {/* Topo */}
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          gap: 10,
-          alignItems: "center",
-          flexWrap: "wrap",
-        }}
-      >
-        <h2 className="page-title" style={{ margin: 0 }}>
-          Reserva
-        </h2>
+      {/* Título */}
+      <h2 className="page-title" style={{ marginBottom: 8 }}>
+        Reserva
+      </h2>
 
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+      {/* ✅ QUADRINHO DOS BOTÕES (todos do mesmo tamanho, lado a lado) */}
+      <div className="card" style={actionPanelStyle}>
+        <div className="muted small" style={{ marginBottom: 10 }}>
+          Ações rápidas
+        </div>
+
+        <div style={actionGridStyle}>
           <button
             type="button"
             className="primary-btn"
             onClick={() => setAddOpen(true)}
-            style={primarySoftBlueStrong}
+            style={{ ...actionBtnBase, ...softBlueStrong }}
             title="Adicionar dinheiro na reserva"
           >
             ➕ Adicionar
@@ -518,31 +543,52 @@ export default function ReservaPage() {
             type="button"
             className="primary-btn"
             onClick={() => setRetOpen(true)}
-            style={primarySoftBlue}
+            style={{ ...actionBtnBase, ...softBlue }}
             title="Retirar dinheiro da reserva"
           >
             ➖ Retirar
           </button>
 
-          <button type="button" className="toggle-btn" onClick={() => setMetaOpen(true)} title="Editar meta do mês">
+          <button
+            type="button"
+            className="toggle-btn"
+            onClick={() => setMetaOpen(true)}
+            style={actionBtnBase}
+            title="Editar meta do mês"
+          >
             🎯 Meta
           </button>
 
-          <button type="button" className="toggle-btn" onClick={() => setNovoLocalOpen(true)} title="Adicionar novo local">
+          <button
+            type="button"
+            className="toggle-btn"
+            onClick={() => setNovoLocalOpen(true)}
+            style={actionBtnBase}
+            title="Criar novo local"
+          >
             📌 Novo local
           </button>
 
-          <button type="button" className="toggle-btn" onClick={abrirReset} title="Reiniciar Reserva">
+          <button
+            type="button"
+            className="toggle-btn"
+            onClick={abrirReset}
+            style={actionBtnBase}
+            title="Reiniciar Reserva"
+          >
             ♻️ Reiniciar
           </button>
+        </div>
+
+        {/* Responsivo: se a tela for estreita, quebra bem */}
+        <div className="muted small" style={{ marginTop: 10 }}>
+          Dica: se estiver no celular, eles podem quebrar em 2 linhas automaticamente.
         </div>
       </div>
 
       <FeedbackBox text={mensagem} onClose={() => setMensagem("")} />
 
-      {/* ========================= */}
-      {/* MODAL: META */}
-      {/* ========================= */}
+      {/* META */}
       {metaOpen ? (
         <div className="modal-overlay">
           <div className="modal-card">
@@ -573,19 +619,11 @@ export default function ReservaPage() {
                 />
               </div>
 
-              <div
-                style={{
-                  display: "flex",
-                  gap: 8,
-                  justifyContent: "flex-end",
-                  marginTop: 12,
-                  flexWrap: "wrap",
-                }}
-              >
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 12, flexWrap: "wrap" }}>
                 <button type="button" className="toggle-btn" onClick={() => setMetaOpen(false)}>
                   Cancelar
                 </button>
-                <button className="primary-btn" type="submit" style={primarySoftBlueStrong}>
+                <button className="primary-btn" type="submit" style={softBlueStrong}>
                   Salvar
                 </button>
               </div>
@@ -594,9 +632,7 @@ export default function ReservaPage() {
         </div>
       ) : null}
 
-      {/* ========================= */}
-      {/* MODAL: ADICIONAR */}
-      {/* ========================= */}
+      {/* ADICIONAR */}
       {addOpen ? (
         <div className="modal-overlay">
           <div className="modal-card">
@@ -636,19 +672,11 @@ export default function ReservaPage() {
                 </select>
               </div>
 
-              <div
-                style={{
-                  display: "flex",
-                  gap: 8,
-                  justifyContent: "flex-end",
-                  marginTop: 12,
-                  flexWrap: "wrap",
-                }}
-              >
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 12, flexWrap: "wrap" }}>
                 <button type="button" className="toggle-btn" onClick={() => setAddOpen(false)}>
                   Cancelar
                 </button>
-                <button className="primary-btn" type="submit" style={primarySoftBlueStrong}>
+                <button className="primary-btn" type="submit" style={softBlueStrong}>
                   Confirmar
                 </button>
               </div>
@@ -661,9 +689,7 @@ export default function ReservaPage() {
         </div>
       ) : null}
 
-      {/* ========================= */}
-      {/* MODAL: RETIRAR */}
-      {/* ========================= */}
+      {/* RETIRAR */}
       {retOpen ? (
         <div className="modal-overlay">
           <div className="modal-card">
@@ -702,19 +728,11 @@ export default function ReservaPage() {
                 </select>
               </div>
 
-              <div
-                style={{
-                  display: "flex",
-                  gap: 8,
-                  justifyContent: "flex-end",
-                  marginTop: 12,
-                  flexWrap: "wrap",
-                }}
-              >
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 12, flexWrap: "wrap" }}>
                 <button type="button" className="toggle-btn" onClick={() => setRetOpen(false)}>
                   Cancelar
                 </button>
-                <button className="primary-btn" type="submit" style={primarySoftBlue}>
+                <button className="primary-btn" type="submit" style={softBlue}>
                   Confirmar
                 </button>
               </div>
@@ -728,9 +746,7 @@ export default function ReservaPage() {
         </div>
       ) : null}
 
-      {/* ========================= */}
-      {/* MODAL: NOVO LOCAL */}
-      {/* ========================= */}
+      {/* NOVO LOCAL */}
       {novoLocalOpen ? (
         <div className="modal-overlay">
           <div className="modal-card">
@@ -758,19 +774,11 @@ export default function ReservaPage() {
                 />
               </div>
 
-              <div
-                style={{
-                  display: "flex",
-                  gap: 8,
-                  justifyContent: "flex-end",
-                  marginTop: 12,
-                  flexWrap: "wrap",
-                }}
-              >
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 12, flexWrap: "wrap" }}>
                 <button type="button" className="toggle-btn" onClick={() => setNovoLocalOpen(false)}>
                   Cancelar
                 </button>
-                <button className="primary-btn" type="submit" style={primarySoftBlueStrong}>
+                <button className="primary-btn" type="submit" style={softBlueStrong}>
                   Adicionar
                 </button>
               </div>
@@ -779,7 +787,7 @@ export default function ReservaPage() {
         </div>
       ) : null}
 
-      {/* MODAL: RESET */}
+      {/* RESET */}
       {resetOpen ? (
         <div className="modal-overlay">
           <div className="modal-card">
@@ -809,10 +817,7 @@ export default function ReservaPage() {
                 type="button"
                 className="primary-btn"
                 onClick={confirmarReset}
-                style={{
-                  background: "rgba(239,68,68,.15)",
-                  border: "1px solid rgba(239,68,68,.35)",
-                }}
+                style={{ background: "rgba(239,68,68,.15)", border: "1px solid rgba(239,68,68,.35)" }}
               >
                 ✅ Sim, zerar
               </button>
@@ -821,7 +826,7 @@ export default function ReservaPage() {
         </div>
       ) : null}
 
-      {/* MODAL: APAGAR LOCAL */}
+      {/* APAGAR LOCAL */}
       {delOpen ? (
         <div className="modal-overlay">
           <div className="modal-card">
@@ -852,10 +857,7 @@ export default function ReservaPage() {
                 type="button"
                 className="primary-btn"
                 onClick={confirmarApagarLocal}
-                style={{
-                  background: "rgba(239,68,68,.15)",
-                  border: "1px solid rgba(239,68,68,.35)",
-                }}
+                style={{ background: "rgba(239,68,68,.15)", border: "1px solid rgba(239,68,68,.35)" }}
               >
                 🗑️ Apagar
               </button>
@@ -864,7 +866,7 @@ export default function ReservaPage() {
         </div>
       ) : null}
 
-      {/* RESUMO (mais bonito e organizado) */}
+      {/* RESUMO */}
       <div className="card" style={{ marginTop: 10 }}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start" }}>
           <div>
@@ -930,7 +932,7 @@ export default function ReservaPage() {
         </div>
       </div>
 
-      {/* LOCAIS (separado e mais limpo) */}
+      {/* LOCAIS */}
       <div className="card mt">
         <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
           <h3 style={{ margin: 0 }}>Locais</h3>
