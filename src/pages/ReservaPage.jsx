@@ -108,6 +108,11 @@ export default function ReservaPage() {
   const [origem, setOrigem] = useState("salario"); // origem do dinheiro
   const [localDestinoId, setLocalDestinoId] = useState(""); // local escolhido para receber o depósito
 
+  // ✅ NOVO: retirar dinheiro da reserva (resgate)
+  const [valorRetirar, setValorRetirar] = useState("");
+  const [motivoRetirar, setMotivoRetirar] = useState("contas"); // motivo do resgate (só pra descrição)
+  const [localRetirarId, setLocalRetirarId] = useState(""); // local escolhido para retirar
+
   // ✅ Mensagem dentro da tela (fechável)
   // Texto exibido no FeedbackBox
   const [mensagem, setMensagem] = useState("");
@@ -157,6 +162,9 @@ export default function ReservaPage() {
       localId: m.localId || "",
       objetivo: String(m.objetivo || ""),
       dataHora: m.dataHora || new Date().toISOString(),
+      // ✅ NOVO (opcional, não quebra nada): tipo do movimento
+      // - "entrada" (depósito) | "saida" (retirada)
+      tipo: m.tipo || "", // se não existir, fica vazio
     }));
   }, [movimentosRaw]);
 
@@ -233,6 +241,7 @@ export default function ReservaPage() {
   }, [diaPagamento, mesReferencia?.ano, mesReferencia?.mes]);
 
   // Soma quanto foi guardado (movimentos) dentro do ciclo calculado
+  // ✅ agora inclui retirada (valor negativo) como "net do ciclo" (bem mais correto)
   const totalNoCiclo = useMemo(() => {
     if (!periodoCiclo) return 0;
 
@@ -304,6 +313,9 @@ export default function ReservaPage() {
 
     // Se ainda não tiver um destino selecionado, seleciona o novo local automaticamente
     if (!localDestinoId) setLocalDestinoId(novo.id);
+
+    // ✅ novo: se ainda não tiver um local de retirada selecionado, também seleciona
+    if (!localRetirarId) setLocalRetirarId(novo.id);
 
     setMensagem("Local adicionado.");
   }
@@ -377,7 +389,17 @@ export default function ReservaPage() {
     if (o === "pix") return "PIX";
     if (o === "venda") return "Venda";
     if (o === "economia") return "Economia";
+    if (o === "resgate") return "Resgate";
     return "Outros";
+  }
+
+  // Rótulo do motivo do resgate (só pra descrição)
+  function motivoLabel(m) {
+    if (m === "contas") return "Pagar contas";
+    if (m === "emergencia") return "Emergência";
+    if (m === "compra") return "Compra";
+    if (m === "outro") return "Outro";
+    return "Outro";
   }
 
   // =========================
@@ -427,6 +449,7 @@ export default function ReservaPage() {
       localId: localDestinoId,
       objetivo: "", // ✅ agora não existe mais "Nome do depósito"
       dataHora: new Date().toISOString(),
+      tipo: "entrada", // ✅ novo
     };
 
     // Salva: locais atualizados + novo movimento no topo do histórico
@@ -458,6 +481,87 @@ export default function ReservaPage() {
     setValorAdicionar("");
 
     setMensagem(`Adicionado: ${formatCurrency(v)}.`);
+  }
+
+  // =========================
+  // ✅ NOVO: RETIRAR DINHEIRO (RESGATE)
+  // - tira do local (diminui o valor guardado)
+  // - cria movimento NEGATIVO no histórico (valor = -v)
+  // - registra uma "receita" nas transações para devolver ao saldo do app
+  // =========================
+  function handleRetirarReserva(e) {
+    e.preventDefault();
+
+    const v = toNum(valorRetirar);
+
+    if (!v || v <= 0) {
+      setMensagem("Digite um valor válido para retirar.");
+      return;
+    }
+
+    if (!localRetirarId) {
+      setMensagem("Selecione o local para retirar.");
+      return;
+    }
+
+    const origemLocal = locais.find((l) => l.id === localRetirarId);
+    if (!origemLocal) {
+      setMensagem("Local inválido.");
+      return;
+    }
+
+    if (origemLocal.status === "done") {
+      setMensagem("Este local está concluído. Reabra o local para retirar valores.");
+      return;
+    }
+
+    const saldoLocal = toNum(origemLocal.valor);
+    if (v > saldoLocal) {
+      setMensagem(`Saldo insuficiente neste local. Disponível: ${formatCurrency(saldoLocal)}.`);
+      return;
+    }
+
+    // Atualiza o valor do local (subtrai)
+    const novosLocais = locais.map((l) =>
+      l.id === localRetirarId ? { ...l, valor: Math.max(0, Number(l.valor || 0) - v) } : l
+    );
+
+    // Movimento NEGATIVO (fica bem claro no histórico)
+    const movimento = {
+      id: generateId(),
+      valor: -v, // ✅ negativo
+      origem: "resgate",
+      localId: localRetirarId,
+      objetivo: motivoLabel(motivoRetirar),
+      dataHora: new Date().toISOString(),
+      tipo: "saida",
+    };
+
+    atualizarReserva({
+      locais: novosLocais,
+      movimentos: [movimento, ...movimentos],
+    });
+
+    // ✅ devolve ao saldo como RECEITA
+    if (typeof adicionarTransacao === "function") {
+      try {
+        adicionarTransacao({
+          id: generateId(),
+          tipo: "receita",
+          valor: v,
+          categoria: "resgate_reserva",
+          descricao: `Resgate Reserva: ${nomeLocal(localRetirarId)} (${motivoLabel(motivoRetirar)})`,
+          formaPagamento: "dinheiro",
+          dataHora: new Date().toISOString(),
+          origem: "resgate",
+        });
+      } catch (err) {
+        console.error("Falha ao registrar transação de resgate:", err);
+      }
+    }
+
+    setValorRetirar("");
+    setMensagem(`Retirado: ${formatCurrency(v)}.`);
   }
 
   // =========================
@@ -498,11 +602,36 @@ export default function ReservaPage() {
   // Concluídos ficam em uma área separada e escondida, com contagem de dias até remover
   const locaisConcluidos = locais.filter((l) => l.status === "done");
 
+  // ✅ melhora visual: garante seleção inicial em selects quando cria/abre e ainda tá vazio
+  useEffect(() => {
+    if (!localDestinoId && locaisAtivos.length > 0) setLocalDestinoId(locaisAtivos[0].id);
+    if (!localRetirarId && locaisAtivos.length > 0) setLocalRetirarId(locaisAtivos[0].id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locaisAtivos.length]);
+
   // Render da página
   return (
     <div className="page">
       {/* Título da página */}
-      <h2 className="page-title">Reserva</h2>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          gap: 10,
+          alignItems: "center",
+          flexWrap: "wrap",
+        }}
+      >
+        <h2 className="page-title" style={{ margin: 0 }}>
+          Reserva
+        </h2>
+
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button type="button" className="toggle-btn" onClick={abrirReset} title="Reiniciar Reserva">
+            ♻️ Reiniciar
+          </button>
+        </div>
+      </div>
 
       {/* Caixa de feedback (mensagens) */}
       <FeedbackBox text={mensagem} onClose={() => setMensagem("")} />
@@ -524,7 +653,7 @@ export default function ReservaPage() {
                 type="text"
                 value={resetTyping}
                 onChange={(e) => setResetTyping(e.target.value)}
-                placeholder='Digite: ZERAR'
+                placeholder="Digite: ZERAR"
                 autoComplete="off"
               />
             </div>
@@ -569,7 +698,7 @@ export default function ReservaPage() {
                 type="text"
                 value={delTyping}
                 onChange={(e) => setDelTyping(e.target.value)}
-                placeholder='Digite: APAGAR'
+                placeholder="Digite: APAGAR"
                 autoComplete="off"
               />
             </div>
@@ -596,28 +725,23 @@ export default function ReservaPage() {
         </div>
       ) : null}
 
-      {/* META MENSAL */}
-      <div className="card">
-        {/* Cabeçalho + botão reiniciar */}
+      {/* ✅ MELHORIA VISUAL: RESUMO (fica bem organizado em blocos) */}
+      <div className="card" style={{ marginTop: 10 }}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start" }}>
           <div>
-            <h3>Meta do mês (geral)</h3>
-            <p className="muted small">Quanto você quer guardar no mês (no ciclo do pagamento).</p>
+            <h3 style={{ marginBottom: 4 }}>Resumo</h3>
+            <p className="muted small" style={{ marginTop: 0 }}>
+              Visão rápida da sua reserva e da meta do ciclo.
+            </p>
           </div>
-
-          {/* Abre o modal de reset */}
-          <button type="button" className="toggle-btn" onClick={abrirReset} title="Reiniciar Reserva">
-            ♻️ Reiniciar
-          </button>
         </div>
 
-        {/* Exibe período do ciclo se estiver configurado; senão, orienta a configurar no Perfil */}
+        {/* Período do ciclo */}
         {periodoCiclo ? (
           <p className="muted small" style={{ marginTop: 6 }}>
             Ciclo:{" "}
             <strong>
-              {periodoCiclo.inicio.toLocaleDateString("pt-BR")} até{" "}
-              {periodoCiclo.fim.toLocaleDateString("pt-BR")}
+              {periodoCiclo.inicio.toLocaleDateString("pt-BR")} até {periodoCiclo.fim.toLocaleDateString("pt-BR")}
             </strong>
           </p>
         ) : (
@@ -626,7 +750,71 @@ export default function ReservaPage() {
           </p>
         )}
 
-        {/* Form de salvar a meta mensal */}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
+            gap: 10,
+            marginTop: 10,
+          }}
+        >
+          <div
+            style={{
+              border: "1px solid rgba(255,255,255,.08)",
+              borderRadius: 12,
+              padding: 12,
+            }}
+          >
+            <div className="muted small">Total guardado (acumulado)</div>
+            <div style={{ fontSize: 18, fontWeight: 700, marginTop: 4 }}>{formatCurrency(totalGuardado)}</div>
+          </div>
+
+          <div
+            style={{
+              border: "1px solid rgba(255,255,255,.08)",
+              borderRadius: 12,
+              padding: 12,
+            }}
+          >
+            <div className="muted small">Guardado neste ciclo (líquido)</div>
+            <div style={{ fontSize: 18, fontWeight: 700, marginTop: 4 }}>{formatCurrency(totalNoCiclo)}</div>
+          </div>
+
+          <div
+            style={{
+              border: "1px solid rgba(255,255,255,.08)",
+              borderRadius: 12,
+              padding: 12,
+            }}
+          >
+            <div className="muted small">Meta do ciclo</div>
+            <div style={{ fontSize: 18, fontWeight: 700, marginTop: 4 }}>{formatCurrency(metaAtual)}</div>
+
+            {metaAtual > 0 ? (
+              <div className="progress-container" style={{ marginTop: 10 }}>
+                <div className="progress-bar">
+                  <div className="progress-fill" style={{ width: `${percMeta.toFixed(0)}%` }} />
+                </div>
+                <span className="progress-label">{percMeta.toFixed(0)}%</span>
+              </div>
+            ) : (
+              <div className="muted small" style={{ marginTop: 10 }}>
+                Defina a meta para ver o progresso.
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* META MENSAL */}
+      <div className="card mt">
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start" }}>
+          <div>
+            <h3>Meta do mês (geral)</h3>
+            <p className="muted small">Quanto você quer guardar no mês (no ciclo do pagamento).</p>
+          </div>
+        </div>
+
         <form className="form" onSubmit={salvarMetaMensal}>
           <div className="field">
             <label>Meta (R$)</label>
@@ -642,71 +830,58 @@ export default function ReservaPage() {
             Salvar
           </button>
         </form>
-
-        {/* Resumo de valores + barra de progresso da meta */}
-        <div className="total-reserva">
-          <p className="muted small">
-            Total guardado (acumulado): <strong>{formatCurrency(totalGuardado)}</strong>
-          </p>
-
-          <p className="muted small" style={{ marginTop: 4 }}>
-            Guardado neste ciclo: <strong>{formatCurrency(totalNoCiclo)}</strong>
-          </p>
-
-          {/* Só mostra progresso se tiver meta definida */}
-          {metaAtual > 0 && (
-            <div className="progress-container">
-              <div className="progress-bar">
-                <div className="progress-fill" style={{ width: `${percMeta.toFixed(0)}%` }} />
-              </div>
-              <span className="progress-label">{percMeta.toFixed(0)}%</span>
-            </div>
-          )}
-        </div>
       </div>
 
       {/* LOCAIS */}
       <div className="card mt">
         <h3>Locais</h3>
 
-        {/* Explica o que cada local significa */}
         <p className="muted small">
           Cada local tem sua <strong>meta</strong>, o <strong>quanto já foi investido</strong> e o{" "}
           <strong>quanto falta</strong>.
         </p>
 
-        {/* Se não tem locais ativos, mostra instrução */}
         {locaisAtivos.length === 0 ? (
           <p className="muted small">Adicione um local primeiro.</p>
         ) : (
           <ul className="list">
             {locaisAtivos.map((l) => {
-              // Cálculos para exibir no card do local
               const investido = toNum(l.valor);
               const meta = toNum(l.meta);
               const falta = Math.max(0, meta - investido);
               const perc = meta > 0 ? clamp((investido / meta) * 100, 0, 100) : 0;
 
               return (
-                <li key={l.id} className="list-item" style={{ flexDirection: "column", gap: 8 }}>
-                  {/* Linha do nome + botões (Concluir/Apagar) */}
+                <li
+                  key={l.id}
+                  className="list-item"
+                  style={{
+                    flexDirection: "column",
+                    gap: 10,
+                    padding: 14,
+                    borderRadius: 14,
+                  }}
+                >
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 10, width: "100%" }}>
-                    <strong>{l.nome}</strong>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                      <strong style={{ fontSize: 16 }}>{l.nome}</strong>
+                      <span className="muted small">
+                        Investido: <strong>{formatCurrency(investido)}</strong> · Falta:{" "}
+                        <strong>{formatCurrency(falta)}</strong>
+                      </span>
+                    </div>
 
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                      {/* Marca como concluído (ou reabre) */}
                       <button type="button" className="toggle-btn" onClick={() => marcarConcluido(l.id)}>
                         ✅ Concluir
                       </button>
 
-                      {/* Abre modal para apagar */}
                       <button type="button" className="toggle-btn" onClick={() => abrirApagarLocal(l.id)}>
                         🗑️ Apagar
                       </button>
                     </div>
                   </div>
 
-                  {/* Inputs para editar meta e valor investido do local */}
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, width: "100%" }}>
                     <div className="field" style={{ margin: 0 }}>
                       <label>Meta do local (R$)</label>
@@ -729,13 +904,6 @@ export default function ReservaPage() {
                     </div>
                   </div>
 
-                  {/* Texto com investido/falta */}
-                  <div className="muted small" style={{ width: "100%" }}>
-                    Investido: <strong>{formatCurrency(investido)}</strong> · Falta:{" "}
-                    <strong>{formatCurrency(falta)}</strong>
-                  </div>
-
-                  {/* Barra de progresso do local (se meta > 0) */}
                   {meta > 0 ? (
                     <div className="progress-container" style={{ width: "100%" }}>
                       <div className="progress-bar">
@@ -754,7 +922,6 @@ export default function ReservaPage() {
           </ul>
         )}
 
-        {/* Form para criar novo local */}
         <form className="form" onSubmit={adicionarLocal} style={{ marginTop: 10 }}>
           <div className="field">
             <label>Novo local</label>
@@ -787,18 +954,12 @@ export default function ReservaPage() {
           <div style={{ marginTop: 14 }}>
             <h4 style={{ marginBottom: 6 }}>Concluídos</h4>
 
-            {/* Explica regra de remoção automática */}
-            <p className="muted small">
-              Concluídos ficam ocultos e serão removidos automaticamente após 7 dias.
-            </p>
+            <p className="muted small">Concluídos ficam ocultos e serão removidos automaticamente após 7 dias.</p>
 
             <ul className="list" style={{ marginTop: 8 }}>
               {locaisConcluidos.map((l) => {
-                // Calcula quantos dias já se passaram desde doneAt
                 const doneAt = l.doneAt ? new Date(l.doneAt) : null;
                 const dias = doneAt ? daysBetween(doneAt.getTime(), Date.now()) : 0;
-
-                // Quantos dias faltam pra completar 7
                 const faltam = Math.max(0, 7 - dias);
 
                 return (
@@ -811,12 +972,10 @@ export default function ReservaPage() {
                     </div>
 
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                      {/* Reabre (tira de concluído) */}
                       <button type="button" className="toggle-btn" onClick={() => marcarConcluido(l.id)}>
                         ↩️ Reabrir
                       </button>
 
-                      {/* Apaga imediatamente (abre modal de apagar) */}
                       <button type="button" className="toggle-btn" onClick={() => abrirApagarLocal(l.id)}>
                         🗑️ Apagar agora
                       </button>
@@ -829,67 +988,122 @@ export default function ReservaPage() {
         ) : null}
       </div>
 
-      {/* ADICIONAR DINHEIRO */}
-      <div className="card mt">
-        <h3>Adicionar</h3>
+      {/* ✅ MELHORIA VISUAL: ADICIONAR + RETIRAR lado a lado (quando couber) */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+          gap: 10,
+          marginTop: 10,
+        }}
+      >
+        {/* ADICIONAR DINHEIRO */}
+        <div className="card">
+          <h3>Adicionar</h3>
 
-        {/* Form de depósito */}
-        <form className="form" onSubmit={handleAdicionarReserva}>
-          {/* ✅ REMOVIDO: Nome do depósito (opcional) */}
+          <form className="form" onSubmit={handleAdicionarReserva}>
+            <div className="field">
+              <label>Valor (R$)</label>
+              <input
+                type="number"
+                step="0.01"
+                value={valorAdicionar}
+                onChange={(e) => setValorAdicionar(e.target.value)}
+              />
+            </div>
 
-          <div className="field">
-            <label>Valor (R$)</label>
-            <input
-              type="number"
-              step="0.01"
-              value={valorAdicionar}
-              onChange={(e) => setValorAdicionar(e.target.value)}
-            />
-          </div>
+            <div className="field">
+              <label>Origem</label>
+              <select value={origem} onChange={(e) => setOrigem(e.target.value)}>
+                <option value="salario">Salário</option>
+                <option value="pix">PIX</option>
+                <option value="venda">Venda</option>
+                <option value="economia">Economia</option>
+                <option value="outros">Outros</option>
+              </select>
+            </div>
 
-          {/* Seletor de origem do dinheiro */}
-          <div className="field">
-            <label>Origem</label>
-            <select value={origem} onChange={(e) => setOrigem(e.target.value)}>
-              <option value="salario">Salário</option>
-              <option value="pix">PIX</option>
-              <option value="venda">Venda</option>
-              <option value="economia">Economia</option>
-              <option value="outros">Outros</option>
-            </select>
-          </div>
+            <div className="field">
+              <label>Local</label>
+              <select value={localDestinoId} onChange={(e) => setLocalDestinoId(e.target.value)}>
+                <option value="">Selecione...</option>
+                {locaisAtivos.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.nome}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-          {/* Seletor de local destino */}
-          <div className="field">
-            <label>Local</label>
-            <select value={localDestinoId} onChange={(e) => setLocalDestinoId(e.target.value)}>
-              <option value="">Selecione...</option>
-              {locaisAtivos.map((l) => (
-                <option key={l.id} value={l.id}>
-                  {l.nome}
-                </option>
-              ))}
-            </select>
-          </div>
+            <button className="primary-btn" type="submit">
+              Adicionar
+            </button>
+          </form>
 
-          <button className="primary-btn" type="submit">
-            Adicionar
-          </button>
-        </form>
+          <p className="muted small" style={{ marginTop: 10 }}>
+            Ao adicionar, o app registra uma <strong>despesa “investido”</strong> para descontar do saldo.
+          </p>
+        </div>
+
+        {/* ✅ NOVO: RETIRAR DINHEIRO */}
+        <div className="card">
+          <h3>Retirar</h3>
+
+          <form className="form" onSubmit={handleRetirarReserva}>
+            <div className="field">
+              <label>Valor (R$)</label>
+              <input
+                type="number"
+                step="0.01"
+                value={valorRetirar}
+                onChange={(e) => setValorRetirar(e.target.value)}
+              />
+            </div>
+
+            <div className="field">
+              <label>Motivo</label>
+              <select value={motivoRetirar} onChange={(e) => setMotivoRetirar(e.target.value)}>
+                <option value="contas">Pagar contas</option>
+                <option value="emergencia">Emergência</option>
+                <option value="compra">Compra</option>
+                <option value="outro">Outro</option>
+              </select>
+            </div>
+
+            <div className="field">
+              <label>Local</label>
+              <select value={localRetirarId} onChange={(e) => setLocalRetirarId(e.target.value)}>
+                <option value="">Selecione...</option>
+                {locaisAtivos.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.nome}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <button className="primary-btn" type="submit">
+              Retirar
+            </button>
+          </form>
+
+          <p className="muted small" style={{ marginTop: 10 }}>
+            Ao retirar, o app cria um movimento <strong>negativo</strong> no histórico e registra uma{" "}
+            <strong>receita</strong> “resgate_reserva” para devolver ao saldo.
+          </p>
+        </div>
       </div>
 
       {/* HISTÓRICO */}
       <div className="card mt">
         <h3>Histórico</h3>
 
-        {/* Se não tem movimentos, mostra texto */}
         {movimentos.length === 0 ? (
           <p className="muted small">Sem movimentos ainda.</p>
         ) : (
           <ul className="list">
             {movimentos.map((m) => (
               <li key={m.id} className="list-item list-item-history">
-                {/* Esquerda: valor + detalhes */}
                 <div>
                   <strong>{formatCurrency(m.valor)}</strong>
 
@@ -899,7 +1113,6 @@ export default function ReservaPage() {
                   </p>
                 </div>
 
-                {/* Direita: data e hora do movimento */}
                 <div className="muted small">
                   {new Date(m.dataHora).toLocaleDateString("pt-BR")}{" "}
                   {new Date(m.dataHora).toLocaleTimeString("pt-BR", {
@@ -920,6 +1133,7 @@ export default function ReservaPage() {
           <br />• Se você <strong>apagar um local</strong>, some tudo ligado a ele (inclusive no histórico).
           <br />• Se você <strong>marcar como concluído</strong>, ele fica oculto e é removido após 7 dias (com histórico).
           <br />• Cada local tem <strong>meta</strong>, <strong>investido</strong> e <strong>quanto falta</strong>.
+          <br />• ✅ Agora você também pode <strong>RETIRAR</strong> dinheiro da reserva quando precisar.
         </p>
       </div>
     </div>
