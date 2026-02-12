@@ -84,11 +84,11 @@ export default function ReservaPage() {
   // Mensagem
   const [mensagem, setMensagem] = useState("");
 
-  // Modal: reiniciar tudo
+  // Reiniciar tudo
   const [resetOpen, setResetOpen] = useState(false);
   const [resetTyping, setResetTyping] = useState("");
 
-  // Modal: apagar local
+  // Apagar local
   const [delOpen, setDelOpen] = useState(false);
   const [delLocalId, setDelLocalId] = useState("");
   const [delTyping, setDelTyping] = useState("");
@@ -137,9 +137,7 @@ export default function ReservaPage() {
     for (const l of locais) {
       if (l.status === "done" && l.doneAt) {
         const t = new Date(l.doneAt).getTime();
-        if (!isNaN(t) && daysBetween(t, now) >= 7) {
-          toRemoveIds.push(l.id);
-        }
+        if (!isNaN(t) && daysBetween(t, now) >= 7) toRemoveIds.push(l.id);
       }
     }
 
@@ -454,10 +452,7 @@ export default function ReservaPage() {
       return;
     }
 
-    atualizarReserva({
-      locais: [],
-      movimentos: [],
-    });
+    atualizarReserva({ locais: [], movimentos: [] });
 
     setResetOpen(false);
     setResetTyping("");
@@ -467,14 +462,12 @@ export default function ReservaPage() {
   const locaisAtivos = locais.filter((l) => l.status !== "done");
   const locaisConcluidos = locais.filter((l) => l.status === "done");
 
-  // Seleções iniciais dos selects
   useEffect(() => {
     if (!localDestinoId && locaisAtivos.length > 0) setLocalDestinoId(locaisAtivos[0].id);
     if (!localRetirarId && locaisAtivos.length > 0) setLocalRetirarId(locaisAtivos[0].id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locaisAtivos.length]);
 
-  // Azul mais claro mantendo azul
   const softBlue = {
     background: "rgba(59,130,246,.18)",
     border: "1px solid rgba(59,130,246,.35)",
@@ -487,7 +480,7 @@ export default function ReservaPage() {
     color: "rgba(255,255,255,.98)",
   };
 
-  // ✅ PADRÃO DOS BOTÕES: todos do mesmo tamanho, alinhados em “quadrinho”
+  // Quadrinho dos botões
   const actionPanelStyle = {
     marginTop: 10,
     padding: 12,
@@ -496,9 +489,10 @@ export default function ReservaPage() {
     background: "rgba(255,255,255,.03)",
   };
 
+  // ✅ agora são 3 botões (sem Meta e Novo local)
   const actionGridStyle = {
     display: "grid",
-    gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
+    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
     gap: 10,
   };
 
@@ -517,12 +511,11 @@ export default function ReservaPage() {
 
   return (
     <div className="page">
-      {/* Título */}
       <h2 className="page-title" style={{ marginBottom: 8 }}>
         Reserva
       </h2>
 
-      {/* ✅ QUADRINHO DOS BOTÕES (todos do mesmo tamanho, lado a lado) */}
+      {/* ✅ AÇÕES RÁPIDAS (SEM META E SEM NOVO LOCAL) */}
       <div className="card" style={actionPanelStyle}>
         <div className="muted small" style={{ marginBottom: 10 }}>
           Ações rápidas
@@ -552,26 +545,6 @@ export default function ReservaPage() {
           <button
             type="button"
             className="toggle-btn"
-            onClick={() => setMetaOpen(true)}
-            style={actionBtnBase}
-            title="Editar meta do mês"
-          >
-            🎯 Meta
-          </button>
-
-          <button
-            type="button"
-            className="toggle-btn"
-            onClick={() => setNovoLocalOpen(true)}
-            style={actionBtnBase}
-            title="Criar novo local"
-          >
-            📌 Novo local
-          </button>
-
-          <button
-            type="button"
-            className="toggle-btn"
             onClick={abrirReset}
             style={actionBtnBase}
             title="Reiniciar Reserva"
@@ -580,7 +553,6 @@ export default function ReservaPage() {
           </button>
         </div>
 
-        {/* Responsivo: se a tela for estreita, quebra bem */}
         <div className="muted small" style={{ marginTop: 10 }}>
           Dica: se estiver no celular, eles podem quebrar em 2 linhas automaticamente.
         </div>
@@ -588,7 +560,7 @@ export default function ReservaPage() {
 
       <FeedbackBox text={mensagem} onClose={() => setMensagem("")} />
 
-      {/* META */}
+      {/* META (continua existindo, só não está nos botões de cima) */}
       {metaOpen ? (
         <div className="modal-overlay">
           <div className="modal-card">
@@ -746,7 +718,7 @@ export default function ReservaPage() {
         </div>
       ) : null}
 
-      {/* NOVO LOCAL */}
+      {/* NOVO LOCAL (continua existindo, só não está nos botões de cima) */}
       {novoLocalOpen ? (
         <div className="modal-overlay">
           <div className="modal-card">
@@ -876,6 +848,7 @@ export default function ReservaPage() {
             </p>
           </div>
 
+          {/* Mantém acesso à meta aqui (opcional) */}
           <button type="button" className="toggle-btn" onClick={() => setMetaOpen(true)} title="Editar meta">
             🎯 Ajustar
           </button>
@@ -937,6 +910,7 @@ export default function ReservaPage() {
         <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
           <h3 style={{ margin: 0 }}>Locais</h3>
 
+          {/* Mantém acesso a novo local aqui (opcional) */}
           <button type="button" className="toggle-btn" onClick={() => setNovoLocalOpen(true)} title="Novo local">
             📌 Adicionar
           </button>
