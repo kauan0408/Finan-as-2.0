@@ -540,35 +540,60 @@ export default function HistoricoPage() {
           Resumo de {nomeMes} / {mesReferencia?.ano ?? new Date().getFullYear()}
         </h3>
 
-        {/* ✅ ADICIONADO: botões para mostrar/ocultar parcelas futuras */}
+        {/* ✅ ALTERADO: 1 botão tipo toggle (bolinha vai pro lado) + texto "mostrando/ocultando" */}
         <div
           style={{
             display: "flex",
-            gap: 8,
-            justifyContent: "flex-start",
+            alignItems: "center",
+            gap: 10,
             flexWrap: "wrap",
             marginTop: 10,
           }}
         >
           <button
             type="button"
+            role="switch"
+            aria-checked={mostrarParcelasFuturas}
             className="chip"
-            onClick={() => setMostrarParcelasFuturas(true)}
-            disabled={mostrarParcelasFuturas}
-            title="Mostra também as parcelas dos próximos meses"
+            onClick={() => setMostrarParcelasFuturas((v) => !v)}
+            title="Alternar parcelas futuras"
+            style={{
+              width: 54,
+              height: 30,
+              padding: 0,
+              borderRadius: 999,
+              position: "relative",
+              border: "1px solid rgba(255,255,255,0.18)",
+              background: mostrarParcelasFuturas ? "rgba(34,197,94,0.20)" : "rgba(148,163,184,0.18)",
+            }}
           >
-            👁 Mostrar parcelas futuras
+            <span
+              style={{
+                position: "absolute",
+                top: 3,
+                left: mostrarParcelasFuturas ? 27 : 3,
+                width: 24,
+                height: 24,
+                borderRadius: "50%",
+                background: "rgba(255,255,255,0.92)",
+                transition: "left 160ms ease",
+              }}
+            />
           </button>
 
-          <button
-            type="button"
+          <span
             className="chip"
-            onClick={() => setMostrarParcelasFuturas(false)}
-            disabled={!mostrarParcelasFuturas}
-            title="Oculta parcelas até chegar o mês da cobrança"
+            style={{
+              padding: "6px 10px",
+              borderRadius: 999,
+              background: "rgba(31,41,55,0.35)",
+              border: "1px solid rgba(255,255,255,0.10)",
+            }}
           >
-            🙈 Ocultar parcelas futuras
-          </button>
+            {mostrarParcelasFuturas
+              ? "mostrando parcelas futuras"
+              : "ocultando parcelas futuras"}
+          </span>
         </div>
 
         {/* Se não houver transações no período, mostra mensagem */}
