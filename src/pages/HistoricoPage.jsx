@@ -105,13 +105,13 @@ export default function HistoricoPage() {
   } = useFinance();
 
   // Estados dos filtros (o usuário mexe na UI e isso muda a lista exibida)
-  const [tipoFilter, setTipoFilter] = useState("todos");        // "todos" | "despesa" | "receita"
+  const [tipoFilter, setTipoFilter] = useState("todos"); // "todos" | "despesa" | "receita"
   const [categoriaFilter, setCategoriaFilter] = useState("todas"); // filtro por categoria
-  const [formaFilter, setFormaFilter] = useState("todas");      // filtro por formaPagamento
-  const [cartaoFilter, setCartaoFilter] = useState("todos");    // filtro por cartaoId
-  const [textoFilter, setTextoFilter] = useState("");           // filtro por texto (descricao)
-  const [dataInicio, setDataInicio] = useState("");             // filtro data inicial (input date)
-  const [dataFim, setDataFim] = useState("");                   // filtro data final (input date)
+  const [formaFilter, setFormaFilter] = useState("todas"); // filtro por formaPagamento
+  const [cartaoFilter, setCartaoFilter] = useState("todos"); // filtro por cartaoId
+  const [textoFilter, setTextoFilter] = useState(""); // filtro por texto (descricao)
+  const [dataInicio, setDataInicio] = useState(""); // filtro data inicial (input date)
+  const [dataFim, setDataFim] = useState(""); // filtro data final (input date)
 
   // ✅ ADICIONADO: alterna se parcelas futuras aparecem no histórico
   // Padrão: false (oculta futuras)
@@ -156,7 +156,9 @@ export default function HistoricoPage() {
     // - só afeta transações parceladas (groupId + parcelaTotal > 1)
     // - só funciona bem quando existe mesReferencia
     if (mesReferencia && !mostrarParcelasFuturas) {
-      const chaveMesSelecionado = `${mesReferencia.ano}-${String(mesReferencia.mes + 1).padStart(2, "0")}`;
+      const chaveMesSelecionado = `${mesReferencia.ano}-${String(
+        mesReferencia.mes + 1
+      ).padStart(2, "0")}`;
 
       listaBase = listaBase.filter((t) => {
         // Só mexe em parceladas
@@ -179,8 +181,7 @@ export default function HistoricoPage() {
     // Filtro por categoria (comparando sem diferença de maiúscula/minúscula)
     if (categoriaFilter !== "todas") {
       listaBase = listaBase.filter(
-        (t) =>
-          (t.categoria || "").toLowerCase() === categoriaFilter.toLowerCase()
+        (t) => (t.categoria || "").toLowerCase() === categoriaFilter.toLowerCase()
       );
     }
 
@@ -247,7 +248,9 @@ export default function HistoricoPage() {
 
       listaBase.forEach((t) => {
         // groupKey único pelo tipo e pela descrição normalizada
-        const key = `${t.tipo}::${normalizarDescricao(t.descricao || "Sem descrição")}`;
+        const key = `${t.tipo}::${normalizarDescricao(
+          t.descricao || "Sem descrição"
+        )}`;
 
         // Pega o grupo já existente ou cria um novo grupo
         const atual = map.get(key) || {
@@ -268,10 +271,7 @@ export default function HistoricoPage() {
         // tenta manter a descrição mais "bonita"
         // Se o grupo ficou com "Sem descrição" mas essa transação tem descrição,
         // troca para uma descrição melhor.
-        if (
-          (!atual.descricao || atual.descricao === "Sem descrição") &&
-          t.descricao
-        ) {
+        if ((!atual.descricao || atual.descricao === "Sem descrição") && t.descricao) {
           atual.descricao = t.descricao;
         }
 
@@ -510,7 +510,10 @@ export default function HistoricoPage() {
 
     // Se você estava editando algo que foi apagado (ou do mesmo grupo),
     // fecha o modal de edição para evitar editar item inexistente.
-    if (editando && (editando.id === t.id || (t.groupId && editando.groupId === t.groupId))) {
+    if (
+      editando &&
+      (editando.id === t.id || (t.groupId && editando.groupId === t.groupId))
+    ) {
       fecharEdicao();
     }
 
@@ -540,55 +543,23 @@ export default function HistoricoPage() {
           Resumo de {nomeMes} / {mesReferencia?.ano ?? new Date().getFullYear()}
         </h3>
 
-        {/* ✅ ALTERADO: 1 botão tipo toggle (bolinha vai pro lado) + texto "mostrando/ocultando" */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            flexWrap: "wrap",
-            marginTop: 10,
-          }}
-        >
+        {/* ✅ ALTERADO: toggle top com CSS (bolinha vai pro lado) + texto */}
+        <div className="toggle-row">
           <button
             type="button"
             role="switch"
             aria-checked={mostrarParcelasFuturas}
-            className="chip"
+            className={"toggle-switch " + (mostrarParcelasFuturas ? "is-on" : "")}
             onClick={() => setMostrarParcelasFuturas((v) => !v)}
             title="Alternar parcelas futuras"
-            style={{
-              width: 54,
-              height: 30,
-              padding: 0,
-              borderRadius: 999,
-              position: "relative",
-              border: "1px solid rgba(255,255,255,0.18)",
-              background: mostrarParcelasFuturas ? "rgba(34,197,94,0.20)" : "rgba(148,163,184,0.18)",
-            }}
           >
-            <span
-              style={{
-                position: "absolute",
-                top: 3,
-                left: mostrarParcelasFuturas ? 27 : 3,
-                width: 24,
-                height: 24,
-                borderRadius: "50%",
-                background: "rgba(255,255,255,0.92)",
-                transition: "left 160ms ease",
-              }}
-            />
+            <span className="toggle-knob" />
           </button>
 
           <span
-            className="chip"
-            style={{
-              padding: "6px 10px",
-              borderRadius: 999,
-              background: "rgba(31,41,55,0.35)",
-              border: "1px solid rgba(255,255,255,0.10)",
-            }}
+            className={
+              "toggle-pill " + (mostrarParcelasFuturas ? "is-on" : "is-off")
+            }
           >
             {mostrarParcelasFuturas
               ? "mostrando parcelas futuras"
@@ -782,26 +753,50 @@ export default function HistoricoPage() {
               const itens = g.ids
                 .map((id) => transacoes.find((t) => t.id === id))
                 .filter(Boolean)
-                .sort((a, b) => parseDateValue(b.dataHora) - parseDateValue(a.dataHora));
+                .sort(
+                  (a, b) => parseDateValue(b.dataHora) - parseDateValue(a.dataHora)
+                );
 
               return (
-                <li key={g.key} className="list-item" style={{ flexDirection: "column", alignItems: "stretch" }}>
+                <li
+                  key={g.key}
+                  className="list-item"
+                  style={{ flexDirection: "column", alignItems: "stretch" }}
+                >
                   {/* Cabeçalho do grupo: tipo, descrição, count e total */}
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      gap: 10,
+                      alignItems: "center",
+                    }}
+                  >
                     <div>
-                      <span className="badge">{g.tipo === "despesa" ? "Despesa" : "Receita"}</span>{" "}
+                      <span className="badge">
+                        {g.tipo === "despesa" ? "Despesa" : "Receita"}
+                      </span>{" "}
                       <strong>{g.descricao}</strong>
                       <span className="muted small"> · {g.count}x</span>
                     </div>
 
                     <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                       {/* Total do grupo */}
-                      <span className={"number small " + (g.tipo === "despesa" ? "negative" : "positive")}>
+                      <span
+                        className={
+                          "number small " +
+                          (g.tipo === "despesa" ? "negative" : "positive")
+                        }
+                      >
                         {formatCurrency(g.total)}
                       </span>
 
                       {/* Botão abre/fecha itens */}
-                      <button type="button" className="chip" onClick={() => toggleAbrir(g.key)}>
+                      <button
+                        type="button"
+                        className="chip"
+                        onClick={() => toggleAbrir(g.key)}
+                      >
                         {aberto ? "▲ Fechar" : "▼ Ver itens"}
                       </button>
                     </div>
@@ -809,7 +804,13 @@ export default function HistoricoPage() {
 
                   {/* Itens do grupo (detalhados), só aparecem se estiver aberto */}
                   {aberto && (
-                    <div style={{ marginTop: 10, borderTop: "1px solid rgba(31, 41, 55, 0.6)", paddingTop: 10 }}>
+                    <div
+                      style={{
+                        marginTop: 10,
+                        borderTop: "1px solid rgba(31, 41, 55, 0.6)",
+                        paddingTop: 10,
+                      }}
+                    >
                       <ul className="list">
                         {itens.map((t) => (
                           <li key={t.id} className="list-item list-item-history">
@@ -822,7 +823,8 @@ export default function HistoricoPage() {
                               </div>
                               <div className="muted small">
                                 {(t.formaPagamento || "").toUpperCase()}
-                                {t.cartaoId && ` · ${cartaoNomePorId[t.cartaoId] || "Cartão"}`}
+                                {t.cartaoId &&
+                                  ` · ${cartaoNomePorId[t.cartaoId] || "Cartão"}`}
                                 {t.categoria && ` · ${categoriaLabel(t.categoria)}`}
                               </div>
                             </div>
@@ -839,11 +841,26 @@ export default function HistoricoPage() {
                               </span>
 
                               {/* Botões de editar/apagar a transação específica */}
-                              <div style={{ marginTop: 4, display: "flex", gap: 6, justifyContent: "flex-end" }}>
-                                <button type="button" className="chip" onClick={() => abrirEdicao(t)}>
+                              <div
+                                style={{
+                                  marginTop: 4,
+                                  display: "flex",
+                                  gap: 6,
+                                  justifyContent: "flex-end",
+                                }}
+                              >
+                                <button
+                                  type="button"
+                                  className="chip"
+                                  onClick={() => abrirEdicao(t)}
+                                >
                                   ✏️ Editar
                                 </button>
-                                <button type="button" className="chip" onClick={() => setConfirmandoExclusao(t)}>
+                                <button
+                                  type="button"
+                                  className="chip"
+                                  onClick={() => setConfirmandoExclusao(t)}
+                                >
                                   🗑️ Apagar
                                 </button>
                               </div>
@@ -871,7 +888,9 @@ export default function HistoricoPage() {
               <div className="history-day-header">
                 <div>
                   <h3>{dia}</h3>
-                  <p className="muted small">{bloco.itens.length} transação(ões)</p>
+                  <p className="muted small">
+                    {bloco.itens.length} transação(ões)
+                  </p>
                 </div>
                 <div className="align-right">
                   <p className="history-summary-label">Saldo do dia</p>
@@ -900,7 +919,8 @@ export default function HistoricoPage() {
                       {/* Linha com forma de pagamento + cartão + categoria */}
                       <div className="muted small">
                         {(t.formaPagamento || "").toUpperCase()}
-                        {t.cartaoId && ` · ${cartaoNomePorId[t.cartaoId] || "Cartão"}`}
+                        {t.cartaoId &&
+                          ` · ${cartaoNomePorId[t.cartaoId] || "Cartão"}`}
                         {t.categoria && ` · ${categoriaLabel(t.categoria)}`}
                       </div>
 
@@ -911,7 +931,8 @@ export default function HistoricoPage() {
                           <strong>
                             {formatCurrency(
                               t.totalCompra ||
-                                Number(t.valor || 0) * Number(t.parcelaTotal || 1)
+                                Number(t.valor || 0) *
+                                  Number(t.parcelaTotal || 1)
                             )}
                           </strong>
                         </div>
@@ -934,7 +955,11 @@ export default function HistoricoPage() {
 
                       {/* Ações */}
                       <div style={{ marginTop: 4, display: "flex", gap: 6 }}>
-                        <button type="button" className="chip" onClick={() => abrirEdicao(t)}>
+                        <button
+                          type="button"
+                          className="chip"
+                          onClick={() => abrirEdicao(t)}
+                        >
                           ✏️ Editar
                         </button>
                         <button
@@ -1001,10 +1026,7 @@ export default function HistoricoPage() {
 
             <div className="field">
               <label>Tipo</label>
-              <select
-                value={tipoEdit}
-                onChange={(e) => setTipoEdit(e.target.value)}
-              >
+              <select value={tipoEdit} onChange={(e) => setTipoEdit(e.target.value)}>
                 <option value="despesa">Despesa</option>
                 <option value="receita">Receita</option>
               </select>
@@ -1031,10 +1053,7 @@ export default function HistoricoPage() {
 
             <div className="field">
               <label>Forma de pagamento</label>
-              <select
-                value={formaEdit}
-                onChange={(e) => setFormaEdit(e.target.value)}
-              >
+              <select value={formaEdit} onChange={(e) => setFormaEdit(e.target.value)}>
                 <option value="dinheiro">Dinheiro</option>
                 <option value="debito">Débito</option>
                 <option value="credito">Crédito</option>
@@ -1047,10 +1066,7 @@ export default function HistoricoPage() {
             {formaEdit === "credito" && (
               <div className="field">
                 <label>Cartão</label>
-                <select
-                  value={cartaoEdit}
-                  onChange={(e) => setCartaoEdit(e.target.value)}
-                >
+                <select value={cartaoEdit} onChange={(e) => setCartaoEdit(e.target.value)}>
                   <option value="">Selecione...</option>
                   {cartoes.map((c) => (
                     <option key={c.id} value={c.id}>
