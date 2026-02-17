@@ -1948,3 +1948,46 @@ select:focus {
   width: 70%;
   max-width: 120px;
 }
+
+/* ============================
+   ✅ FIX MODAIS: scroll e mobile (cole no FINAL do CSS)
+============================ */
+
+/* 1) overlay pode rolar */
+.modal-overlay,
+.modal-backdrop {
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch !important;
+  overscroll-behavior: contain !important;
+
+  /* em mobile é melhor ficar topo do que “travado” no meio */
+  align-items: flex-start !important;
+  justify-content: center !important;
+
+  /* espaço pra não grudar no topo e não bater no nav */
+  padding: 72px 16px 16px !important;
+}
+
+/* 2) o card do modal vira uma caixa rolável */
+.modal-card,
+.modal {
+  max-height: calc(100vh - 120px) !important; /* ✅ altura máxima */
+  overflow-y: auto !important;               /* ✅ scroll dentro */
+  overflow-x: hidden !important;
+  -webkit-overflow-scrolling: touch !important;
+  overscroll-behavior: contain !important;
+}
+
+/* 3) Se algum modal estiver “matando” o scroll por causa de display/altura */
+.modal-card * ,
+.modal * {
+  max-width: 100%;
+}
+
+/* 4) (opcional) melhora toque no iOS/Android */
+.modal-card,
+.modal,
+.modal-overlay,
+.modal-backdrop {
+  touch-action: pan-y !important;
+}
