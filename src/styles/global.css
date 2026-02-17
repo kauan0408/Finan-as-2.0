@@ -1948,3 +1948,38 @@ select:focus {
   width: 70%;
   max-width: 120px;
 }
+
+/* ============================
+   ✅ SCROLL LIBERADO PARA MODAIS
+============================ */
+
+/* Overlay pode rolar */
+.modal-overlay,
+.modal-backdrop {
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch !important;
+  overscroll-behavior: contain !important;
+
+  align-items: flex-start !important;
+  justify-content: center !important;
+
+  padding: 72px 16px 16px !important;
+}
+
+/* Card do modal vira área rolável */
+.modal-card,
+.modal {
+  max-height: calc(100vh - 120px) !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  -webkit-overflow-scrolling: touch !important;
+  overscroll-behavior: contain !important;
+}
+
+/* Melhora toque no mobile */
+.modal-card,
+.modal,
+.modal-overlay,
+.modal-backdrop {
+  touch-action: pan-y !important;
+}
