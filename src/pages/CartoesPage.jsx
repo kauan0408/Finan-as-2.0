@@ -154,11 +154,6 @@ export default function CartoesCreditoPage() {
   // ✅ Estado do modal de pagamento (abre ao clicar em "Pagar" ou "Adiantar")
   const [modalPagar, setModalPagar] = useState(null);
 
-  // ✅ NOVO: controla se parcelas FUTURAS ficam visíveis nos cálculos/resumo
-  // - false (padrão): parcelas só aparecem quando chega o mês da cobrança (<= mês selecionado)
-  // - true: mostra também as parcelas dos próximos meses
-  const [mostrarParcelasFuturas, setMostrarParcelasFuturas] = useState(false);
-
   // ✅ "resumo" é a lista de cartões com cálculos prontos:
   // - compras do mês
   // - pagamentos do mês
@@ -249,12 +244,7 @@ export default function CartoesCreditoPage() {
         31
       );
 
-      const comprasCreditoAll = expandComprasCreditoDoCartao(cartaoId, diaDoCartao);
-
-      // ✅ NOVO: controla se parcelas futuras entram nos cálculos (pra não "poluir" antes do mês)
-      const comprasCredito = mostrarParcelasFuturas
-        ? comprasCreditoAll
-        : comprasCreditoAll.filter((t) => t._faturaRef <= chaveMesSelecionado);
+      const comprasCredito = expandComprasCreditoDoCartao(cartaoId, diaDoCartao);
 
       const pagamentos = transacoesSafe
         .filter((t) => t?.tipo === "pagamentoCartao" && t?.cartaoId === cartaoId)
@@ -289,7 +279,7 @@ export default function CartoesCreditoPage() {
       // ✅ EM ABERTO ATÉ O MÊS SELECIONADO (carry)
       // (isso evita zerar quando muda o mês)
       // ==========================================
-      const comprasAteMes = comprasCreditoAll.filter(
+      const comprasAteMes = comprasCredito.filter(
         (t) => t._faturaRef <= chaveMesSelecionado
       );
       const totalComprasAteMes = comprasAteMes.reduce(
@@ -342,13 +332,7 @@ export default function CartoesCreditoPage() {
         diaChegou,
       };
     });
-  }, [
-    cartoesSafe,
-    transacoesSafe,
-    chaveMesSelecionado,
-    hoje,
-    mostrarParcelasFuturas,
-  ]);
+  }, [cartoesSafe, transacoesSafe, chaveMesSelecionado, hoje]);
 
   function cadastrarCartao(e) {
     e.preventDefault();
@@ -513,37 +497,6 @@ export default function CartoesCreditoPage() {
           Compras depois do <strong>Dia do cartão</strong> caem no mês seguinte.
           Parcelas entram nos próximos meses.
         </p>
-
-        {/* ✅ NOVO: botões para mostrar/ocultar parcelas futuras */}
-        <div
-          style={{
-            display: "flex",
-            gap: 8,
-            justifyContent: "center",
-            flexWrap: "wrap",
-            marginTop: 10,
-          }}
-        >
-          <button
-            type="button"
-            className="toggle-btn"
-            onClick={() => setMostrarParcelasFuturas(true)}
-            disabled={mostrarParcelasFuturas}
-            title="Deixa visível também as parcelas dos próximos meses"
-          >
-            👁 Mostrar parcelas futuras
-          </button>
-
-          <button
-            type="button"
-            className="toggle-btn"
-            onClick={() => setMostrarParcelasFuturas(false)}
-            disabled={!mostrarParcelasFuturas}
-            title="Oculta parcelas até chegar o mês da cobrança"
-          >
-            🙈 Ocultar parcelas futuras
-          </button>
-        </div>
       </div>
 
       <div className="card">
