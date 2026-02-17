@@ -136,7 +136,7 @@ export default function FinancasPage() {
   const { transacoes, profile, mesReferencia, mudarMesReferencia, irParaMesAtual } =
     useFinance();
 
-  // ✅ ADICIONADO: modal ao clicar em "Gasto por categoria"
+  // ✅ modal ao clicar em "Gasto por categoria"
   const [modalCategorias, setModalCategorias] = useState(false);
 
   const salariosPorMes = profile?.salariosPorMes || {};
@@ -152,7 +152,7 @@ export default function FinancasPage() {
       let despesasTransacoes = 0;
       let gastosCartao = 0;
 
-      // ✅ ADICIONADO: burrice + investido
+      // ✅ categorias
       let categorias = { essencial: 0, lazer: 0, burrice: 0, investido: 0 };
       const semanas = [0, 0, 0, 0];
 
@@ -194,8 +194,6 @@ export default function FinancasPage() {
             const cat = (t.categoria || "").toLowerCase();
             if (cat === "essencial") categorias.essencial += valor;
             if (cat === "lazer") categorias.lazer += valor;
-
-            // ✅ ADICIONADO
             if (cat === "burrice") categorias.burrice += valor;
             if (cat === "investido") categorias.investido += valor;
 
@@ -219,8 +217,6 @@ export default function FinancasPage() {
         const cat = (g.categoria || "").toLowerCase();
         if (cat === "essencial") categorias.essencial += v;
         if (cat === "lazer") categorias.lazer += v;
-
-        // ✅ ADICIONADO
         if (cat === "burrice") categorias.burrice += v;
         if (cat === "investido") categorias.investido += v;
       });
@@ -258,7 +254,6 @@ export default function FinancasPage() {
           count: x.count,
         }));
 
-      // ✅ ADICIONADO: total das 4 categorias
       const totalCat =
         categorias.essencial + categorias.lazer + categorias.burrice + categorias.investido || 1;
 
@@ -270,11 +265,8 @@ export default function FinancasPage() {
         categorias,
         pEssencial: (categorias.essencial / totalCat) * 100,
         pLazer: (categorias.lazer / totalCat) * 100,
-
-        // ✅ ADICIONADO
         pBurrice: (categorias.burrice / totalCat) * 100,
         pInvestido: (categorias.investido / totalCat) * 100,
-
         semanas,
         maxSemana: Math.max(...semanas, 1),
         topDespesas,
@@ -325,11 +317,9 @@ export default function FinancasPage() {
       ? salarioFixo + resumoAtual.receitas - resumoAtual.despesas - pendenteAnterior
       : resumoAtual.saldo - pendenteAnterior;
 
-  // ✅ ADICIONADO: pizza com 4 fatias (essencial/lazer/burrice/investido)
   const pE = resumoAtual.pEssencial || 0;
   const pL = resumoAtual.pLazer || 0;
   const pB = resumoAtual.pBurrice || 0;
-  const pI = resumoAtual.pInvestido || 0;
 
   const cut1 = pE;
   const cut2 = pE + pL;
@@ -362,7 +352,7 @@ export default function FinancasPage() {
     "Dezembro",
   ][mesReferencia.mes];
 
-  // ✅ ADICIONADO: dados do modal de categorias (organiza sozinho)
+  // ✅ dados do modal de categorias (organiza sozinho)
   const detalhesCategorias = useMemo(() => {
     const mes0 = mesReferencia.mes;
     const ano = mesReferencia.ano;
@@ -379,7 +369,6 @@ export default function FinancasPage() {
         categoria: String(t.categoria || "").trim() || "Sem categoria",
       }));
 
-    // inclui gastos fixos também (pra bater com "Despesas do mês")
     const fixos = (resumoAtual.gastosFixos || []).map((g) => ({
       id: `fixo_${g.id}`,
       descricao: g.descricao || "Gasto fixo",
@@ -402,7 +391,6 @@ export default function FinancasPage() {
 
     const sum = (arr) => arr.reduce((s, x) => s + Number(x.valor || 0), 0);
 
-    // agrupa por descrição (pra somar ifood + ifood etc.)
     const groupByDesc = (arr) => {
       const m = new Map();
       arr.forEach((t) => {
@@ -421,7 +409,6 @@ export default function FinancasPage() {
     const foodByDesc = groupByDesc(food);
     const transportByDesc = groupByDesc(transport);
 
-    // comida por categoria (4 categorias)
     const foodPorCategoria = { essencial: 0, lazer: 0, burrice: 0, investido: 0, outras: 0 };
     food.forEach((t) => {
       const c = String(t.categoria || "").toLowerCase();
@@ -432,7 +419,6 @@ export default function FinancasPage() {
       else foodPorCategoria.outras += t.valor;
     });
 
-    // total por categoria (pra mostrar "quanto gastei em cada coisa")
     const totalPorCategoria = { essencial: 0, lazer: 0, burrice: 0, investido: 0, outras: 0 };
     tudo.forEach((t) => {
       const c = String(t.categoria || "").toLowerCase();
@@ -470,7 +456,6 @@ export default function FinancasPage() {
             ◀ Mês anterior
           </button>
 
-          {/* ✅ AGORA: “Atual” leva pro mês financeiro, calculado no App.jsx pelo diaPagamento */}
           <button className="toggle-btn toggle-active" onClick={irParaMesAtual}>
             ● Atual
           </button>
@@ -522,7 +507,6 @@ export default function FinancasPage() {
           )}
         </div>
 
-        {/* ✅ PENDENTE */}
         {pendenteAnterior > 0 && (
           <div style={{ marginTop: 10 }}>
             <span className="badge badge-pill badge-negative">
@@ -624,7 +608,6 @@ export default function FinancasPage() {
       <div className="grid-2 mt">
         <div
           className="card"
-          // ✅ ADICIONADO: abrir modal ao clicar no bloco (o usuário pediu)
           onClick={() => setModalCategorias(true)}
           style={{ cursor: "pointer" }}
           title="Clique para ver detalhes"
@@ -645,7 +628,6 @@ export default function FinancasPage() {
               Lazer ({resumoAtual.pLazer.toFixed(0)}%)
             </div>
 
-            {/* ✅ ADICIONADO */}
             <div className="legend-item">
               <span className="legend-color" style={{ background: "#F59E0B" }} />
               Burrice ({(resumoAtual.pBurrice || 0).toFixed(0)}%)
@@ -664,41 +646,23 @@ export default function FinancasPage() {
         <div className="card">
           <h3>Gastos por semana</h3>
 
-          {/* ✅ ALTERADO: Sem 1 e Sem 2 em cima / Sem 3 e Sem 4 em baixo */}
-          <div
-            className="weeks-grid"
-            style={{ display: "flex", flexDirection: "column", gap: 12 }}
-          >
-            {[
-              [0, 1],
-              [2, 3],
-            ].map((row, rIdx) => (
-              <div
-                key={rIdx}
-                style={{
-                  display: "flex",
-                  justifyContent: "space-around",
-                  gap: 12,
-                }}
-              >
-                {row.map((i) => {
-                  const v = resumoAtual.semanas[i];
-                  const height = (v / resumoAtual.maxSemana) * 100;
+          {/* ✅ 2x2 (Sem 1 e 2 em cima / 3 e 4 em baixo) */}
+          <div className="weeks-grid">
+            {resumoAtual.semanas.map((v, i) => {
+              const height = (v / resumoAtual.maxSemana) * 100;
 
-                  return (
-                    <div className="bar-column" key={i} style={{ alignItems: "center", flex: 1 }}>
-                      <div className="muted small" style={{ marginBottom: 6 }}>
-                        {formatCurrency(v)}
-                      </div>
+              return (
+                <div className="week-cell" key={i}>
+                  <div className="muted small week-value">{formatCurrency(v)}</div>
 
-                      <div className="bar" style={{ height: `${height || 2}%` }} />
+                  <div className="week-bar-wrap">
+                    <div className="bar week-bar" style={{ height: `${height || 2}%` }} />
+                  </div>
 
-                      <span className="bar-label">Sem {i + 1}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            ))}
+                  <span className="bar-label">Sem {i + 1}</span>
+                </div>
+              );
+            })}
           </div>
 
           <p className="muted small" style={{ marginTop: 8 }}>
@@ -707,7 +671,7 @@ export default function FinancasPage() {
         </div>
       </div>
 
-      {/* ✅ ADICIONADO: MODAL DETALHADO (comida + transporte + totais por categoria) */}
+      {/* MODAL DETALHADO */}
       {modalCategorias && (
         <div className="modal-overlay" onClick={() => setModalCategorias(false)}>
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
@@ -718,8 +682,12 @@ export default function FinancasPage() {
 
             <div className="card" style={{ marginTop: 10 }}>
               <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-                <span><b>Total de despesas</b></span>
-                <span><b>{formatCurrency(detalhesCategorias.totalMes)}</b></span>
+                <span>
+                  <b>Total de despesas</b>
+                </span>
+                <span>
+                  <b>{formatCurrency(detalhesCategorias.totalMes)}</b>
+                </span>
               </div>
               <p className="muted small" style={{ marginTop: 6 }}>
                 (Inclui despesas do histórico + gastos fixos ativos)
@@ -731,7 +699,9 @@ export default function FinancasPage() {
 
               <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
                 <span>Total</span>
-                <span><b>{formatCurrency(detalhesCategorias.totalFood)}</b></span>
+                <span>
+                  <b>{formatCurrency(detalhesCategorias.totalFood)}</b>
+                </span>
               </div>
 
               <p className="muted small" style={{ marginTop: 8 }}>
@@ -787,7 +757,9 @@ export default function FinancasPage() {
 
               <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
                 <span>Total</span>
-                <span><b>{formatCurrency(detalhesCategorias.totalTransport)}</b></span>
+                <span>
+                  <b>{formatCurrency(detalhesCategorias.totalTransport)}</b>
+                </span>
               </div>
 
               <p className="muted small" style={{ marginTop: 10 }}>
@@ -849,4 +821,3 @@ export default function FinancasPage() {
     </div>
   );
 }
-
