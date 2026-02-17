@@ -1,6 +1,6 @@
 // src/pages/FinancasPage.jsx
 
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import { useFinance } from "../App.jsx";
 
 function formatCurrency(value) {
@@ -55,6 +55,67 @@ function normalizarNome(descricao) {
     .replace(/\s+/g, " ");
 }
 
+// ✅ ADICIONADO: normaliza texto para regras automáticas
+function normalizeText(s) {
+  return String(s || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/\s+/g, " ");
+}
+
+// ✅ ADICIONADO: regras automáticas (comida / transporte)
+function isFood(desc) {
+  const d = normalizeText(desc);
+  const keys = [
+    "ifood",
+    "i food",
+    "lanche",
+    "comida",
+    "cafe",
+    "café",
+    "cafe da tarde",
+    "café da tarde",
+    "almoco",
+    "almoço",
+    "jantar",
+    "refri",
+    "refrigerante",
+    "coca",
+    "guarana",
+    "guaraná",
+    "miojo",
+    "doce",
+    "pudim",
+    "risoto",
+    "salgado",
+    "pizza",
+    "hamburguer",
+    "hambúrguer",
+    "sorvete",
+    "acai",
+    "açaí",
+  ];
+  return keys.some((k) => d.includes(normalizeText(k)));
+}
+
+function isTransport(desc) {
+  const d = normalizeText(desc);
+  const keys = [
+    "uber",
+    "99",
+    "taxi",
+    "táxi",
+    "onibus",
+    "ônibus",
+    "passagem",
+    "transporte",
+    "corrida",
+  ];
+  return keys.some((k) => d.includes(normalizeText(k)));
+}
+
 // helpers de mês
 function monthKey(ano, mes0) {
   return `${ano}-${String(mes0 + 1).padStart(2, "0")}`;
@@ -74,6 +135,9 @@ export default function FinancasPage() {
   // ✅ importante: irParaMesAtual agora usa o “mês financeiro” (ajustado no App.jsx)
   const { transacoes, profile, mesReferencia, mudarMesReferencia, irParaMesAtual } =
     useFinance();
+
+  // ✅ ADICIONADO: modal ao clicar em "Gasto por categoria"
+  const [modalCategorias, setModalCategorias] = useState(false);
 
   const salariosPorMes = profile?.salariosPorMes || {};
 
@@ -298,6 +362,99 @@ export default function FinancasPage() {
     "Dezembro",
   ][mesReferencia.mes];
 
+  // ✅ ADICIONADO: dados do modal de categorias (organiza sozinho)
+  const detalhesCategorias = useMemo(() => {
+    const mes0 = mesReferencia.mes;
+    const ano = mesReferencia.ano;
+
+    const despesasMes = transacoes
+      .filter((t) => {
+        const dt = new Date(t.dataHora);
+        return t.tipo === "despesa" && dt.getMonth() === mes0 && dt.getFullYear() === ano;
+      })
+      .map((t) => ({
+        id: t.id,
+        descricao: t.descricao || "Sem descrição",
+        valor: Number(t.valor || 0),
+        categoria: String(t.categoria || "").trim() || "Sem categoria",
+      }));
+
+    // inclui gastos fixos também (pra bater com "Despesas do mês")
+    const fixos = (resumoAtual.gastosFixos || []).map((g) => ({
+      id: `fixo_${g.id}`,
+      descricao: g.descricao || "Gasto fixo",
+      valor: Number(g.valor || 0),
+      categoria: (g.categoria || "Sem categoria").trim(),
+      _fixo: true,
+    }));
+
+    const tudo = [...despesasMes, ...fixos].filter((x) => Number(x.valor) > 0);
+
+    const food = [];
+    const transport = [];
+    const other = [];
+
+    tudo.forEach((t) => {
+      if (isFood(t.descricao)) food.push(t);
+      else if (isTransport(t.descricao)) transport.push(t);
+      else other.push(t);
+    });
+
+    const sum = (arr) => arr.reduce((s, x) => s + Number(x.valor || 0), 0);
+
+    // agrupa por descrição (pra somar ifood + ifood etc.)
+    const groupByDesc = (arr) => {
+      const m = new Map();
+      arr.forEach((t) => {
+        const k = normalizarNome(t.descricao);
+        const cur = m.get(k) || { descricao: t.descricao, total: 0, count: 0 };
+        cur.total += Number(t.valor || 0);
+        cur.count += 1;
+        if ((!cur.descricao || cur.descricao === "Sem descrição") && t.descricao) {
+          cur.descricao = t.descricao;
+        }
+        m.set(k, cur);
+      });
+      return Array.from(m.values()).sort((a, b) => b.total - a.total);
+    };
+
+    const foodByDesc = groupByDesc(food);
+    const transportByDesc = groupByDesc(transport);
+
+    // comida por categoria (4 categorias)
+    const foodPorCategoria = { essencial: 0, lazer: 0, burrice: 0, investido: 0, outras: 0 };
+    food.forEach((t) => {
+      const c = String(t.categoria || "").toLowerCase();
+      if (c === "essencial") foodPorCategoria.essencial += t.valor;
+      else if (c === "lazer") foodPorCategoria.lazer += t.valor;
+      else if (c === "burrice") foodPorCategoria.burrice += t.valor;
+      else if (c === "investido") foodPorCategoria.investido += t.valor;
+      else foodPorCategoria.outras += t.valor;
+    });
+
+    // total por categoria (pra mostrar "quanto gastei em cada coisa")
+    const totalPorCategoria = { essencial: 0, lazer: 0, burrice: 0, investido: 0, outras: 0 };
+    tudo.forEach((t) => {
+      const c = String(t.categoria || "").toLowerCase();
+      if (c === "essencial") totalPorCategoria.essencial += t.valor;
+      else if (c === "lazer") totalPorCategoria.lazer += t.valor;
+      else if (c === "burrice") totalPorCategoria.burrice += t.valor;
+      else if (c === "investido") totalPorCategoria.investido += t.valor;
+      else totalPorCategoria.outras += t.valor;
+    });
+
+    return {
+      totalMes: sum(tudo),
+      totalFood: sum(food),
+      totalTransport: sum(transport),
+      totalOther: sum(other),
+      foodByDesc,
+      transportByDesc,
+      foodPorCategoria,
+      totalPorCategoria,
+    };
+  }, [transacoes, mesReferencia, resumoAtual.gastosFixos]);
+
   return (
     <div className="page">
       <h2 className="page-title">Visão geral do mês</h2>
@@ -465,7 +622,13 @@ export default function FinancasPage() {
 
       {/* CATEGORIAS / SEMANAS */}
       <div className="grid-2 mt">
-        <div className="card">
+        <div
+          className="card"
+          // ✅ ADICIONADO: abrir modal ao clicar no bloco (o usuário pediu)
+          onClick={() => setModalCategorias(true)}
+          style={{ cursor: "pointer" }}
+          title="Clique para ver detalhes"
+        >
           <h3>Gasto por categoria</h3>
 
           <div className="pizza-chart-wrapper">
@@ -491,28 +654,51 @@ export default function FinancasPage() {
               <span className="legend-color" style={{ background: "#10B981" }} />
               Investido ({(resumoAtual.pInvestido || 0).toFixed(0)}%)
             </div>
+
+            <p className="muted small" style={{ marginTop: 8 }}>
+              (Clique para abrir detalhes)
+            </p>
           </div>
         </div>
 
         <div className="card">
           <h3>Gastos por semana</h3>
 
-          <div className="bar-chart">
-            {resumoAtual.semanas.map((v, i) => {
-              const height = (v / resumoAtual.maxSemana) * 100;
+          {/* ✅ ALTERADO: Sem 1 e Sem 2 em cima / Sem 3 e Sem 4 em baixo */}
+          <div
+            className="bar-chart"
+            style={{ display: "flex", flexDirection: "column", gap: 12 }}
+          >
+            {[
+              [0, 1],
+              [2, 3],
+            ].map((row, rIdx) => (
+              <div
+                key={rIdx}
+                style={{
+                  display: "flex",
+                  justifyContent: "space-around",
+                  gap: 12,
+                }}
+              >
+                {row.map((i) => {
+                  const v = resumoAtual.semanas[i];
+                  const height = (v / resumoAtual.maxSemana) * 100;
 
-              return (
-                <div className="bar-column" key={i} style={{ alignItems: "center" }}>
-                  <div className="muted small" style={{ marginBottom: 6 }}>
-                    {formatCurrency(v)}
-                  </div>
+                  return (
+                    <div className="bar-column" key={i} style={{ alignItems: "center", flex: 1 }}>
+                      <div className="muted small" style={{ marginBottom: 6 }}>
+                        {formatCurrency(v)}
+                      </div>
 
-                  <div className="bar" style={{ height: `${height || 2}%` }} />
+                      <div className="bar" style={{ height: `${height || 2}%` }} />
 
-                  <span className="bar-label">Sem {i + 1}</span>
-                </div>
-              );
-            })}
+                      <span className="bar-label">Sem {i + 1}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
           </div>
 
           <p className="muted small" style={{ marginTop: 8 }}>
@@ -520,6 +706,146 @@ export default function FinancasPage() {
           </p>
         </div>
       </div>
+
+      {/* ✅ ADICIONADO: MODAL DETALHADO (comida + transporte + totais por categoria) */}
+      {modalCategorias && (
+        <div className="modal-overlay" onClick={() => setModalCategorias(false)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <h3>Detalhes do mês</h3>
+            <p className="muted small" style={{ marginTop: 4 }}>
+              {nomeMes} / {mesReferencia.ano}
+            </p>
+
+            <div className="card" style={{ marginTop: 10 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                <span><b>Total de despesas</b></span>
+                <span><b>{formatCurrency(detalhesCategorias.totalMes)}</b></span>
+              </div>
+              <p className="muted small" style={{ marginTop: 6 }}>
+                (Inclui despesas do histórico + gastos fixos ativos)
+              </p>
+            </div>
+
+            <div className="card" style={{ marginTop: 10 }}>
+              <h4 style={{ marginBottom: 8 }}>🍔 Comida</h4>
+
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                <span>Total</span>
+                <span><b>{formatCurrency(detalhesCategorias.totalFood)}</b></span>
+              </div>
+
+              <p className="muted small" style={{ marginTop: 8 }}>
+                Comida por categoria:
+              </p>
+              <ul className="list" style={{ marginTop: 6 }}>
+                <li className="list-item">
+                  <span>Essencial</span>
+                  <span>{formatCurrency(detalhesCategorias.foodPorCategoria.essencial)}</span>
+                </li>
+                <li className="list-item">
+                  <span>Lazer</span>
+                  <span>{formatCurrency(detalhesCategorias.foodPorCategoria.lazer)}</span>
+                </li>
+                <li className="list-item">
+                  <span>Burrice</span>
+                  <span>{formatCurrency(detalhesCategorias.foodPorCategoria.burrice)}</span>
+                </li>
+                <li className="list-item">
+                  <span>Investido</span>
+                  <span>{formatCurrency(detalhesCategorias.foodPorCategoria.investido)}</span>
+                </li>
+                {detalhesCategorias.foodPorCategoria.outras > 0 && (
+                  <li className="list-item">
+                    <span>Outras</span>
+                    <span>{formatCurrency(detalhesCategorias.foodPorCategoria.outras)}</span>
+                  </li>
+                )}
+              </ul>
+
+              <p className="muted small" style={{ marginTop: 10 }}>
+                Itens de comida (somados):
+              </p>
+              {detalhesCategorias.foodByDesc.length === 0 ? (
+                <p className="muted small">Nenhum gasto de comida encontrado.</p>
+              ) : (
+                <ul className="list" style={{ marginTop: 6 }}>
+                  {detalhesCategorias.foodByDesc.map((x, idx) => (
+                    <li key={idx} className="list-item">
+                      <span>
+                        {x.descricao}
+                        {x.count > 1 ? <span className="muted small"> · {x.count}x</span> : null}
+                      </span>
+                      <span>{formatCurrency(x.total)}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <div className="card" style={{ marginTop: 10 }}>
+              <h4 style={{ marginBottom: 8 }}>🚗 Transporte</h4>
+
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                <span>Total</span>
+                <span><b>{formatCurrency(detalhesCategorias.totalTransport)}</b></span>
+              </div>
+
+              <p className="muted small" style={{ marginTop: 10 }}>
+                Itens de transporte (somados):
+              </p>
+              {detalhesCategorias.transportByDesc.length === 0 ? (
+                <p className="muted small">Nenhum gasto de transporte encontrado.</p>
+              ) : (
+                <ul className="list" style={{ marginTop: 6 }}>
+                  {detalhesCategorias.transportByDesc.map((x, idx) => (
+                    <li key={idx} className="list-item">
+                      <span>
+                        {x.descricao}
+                        {x.count > 1 ? <span className="muted small"> · {x.count}x</span> : null}
+                      </span>
+                      <span>{formatCurrency(x.total)}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <div className="card" style={{ marginTop: 10 }}>
+              <h4 style={{ marginBottom: 8 }}>📌 Total por categoria</h4>
+              <ul className="list">
+                <li className="list-item">
+                  <span>Essencial</span>
+                  <span>{formatCurrency(detalhesCategorias.totalPorCategoria.essencial)}</span>
+                </li>
+                <li className="list-item">
+                  <span>Lazer</span>
+                  <span>{formatCurrency(detalhesCategorias.totalPorCategoria.lazer)}</span>
+                </li>
+                <li className="list-item">
+                  <span>Burrice</span>
+                  <span>{formatCurrency(detalhesCategorias.totalPorCategoria.burrice)}</span>
+                </li>
+                <li className="list-item">
+                  <span>Investido</span>
+                  <span>{formatCurrency(detalhesCategorias.totalPorCategoria.investido)}</span>
+                </li>
+                {detalhesCategorias.totalPorCategoria.outras > 0 && (
+                  <li className="list-item">
+                    <span>Outras</span>
+                    <span>{formatCurrency(detalhesCategorias.totalPorCategoria.outras)}</span>
+                  </li>
+                )}
+              </ul>
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}>
+              <button className="toggle-btn" type="button" onClick={() => setModalCategorias(false)}>
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
