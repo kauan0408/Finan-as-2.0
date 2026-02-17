@@ -55,6 +55,13 @@ function formatTime(dateValue) {
   });
 }
 
+// ✅ ADICIONADO: chave do mês "YYYY-MM" para comparar meses
+function monthKeyFromDate(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  return `${y}-${m}`;
+}
+
 // ✅ normaliza nomes p/ juntar iguais
 // Isso padroniza a descrição (trim + minúsculo + espaços únicos),
 // para conseguir agrupar "Uber", " uber  ", "UBER" como a mesma coisa.
@@ -106,6 +113,10 @@ export default function HistoricoPage() {
   const [dataInicio, setDataInicio] = useState("");             // filtro data inicial (input date)
   const [dataFim, setDataFim] = useState("");                   // filtro data final (input date)
 
+  // ✅ ADICIONADO: alterna se parcelas futuras aparecem no histórico
+  // Padrão: false (oculta futuras)
+  const [mostrarParcelasFuturas, setMostrarParcelasFuturas] = useState(false);
+
   // 🔧 estados para edição
   // "editando" guarda a transação atualmente selecionada para editar (ou null se não estiver editando).
   const [editando, setEditando] = useState(null);
@@ -140,6 +151,25 @@ export default function HistoricoPage() {
     // 1) LISTA BASE = tudo que já foi lançado, com filtros
     // Começa com todas as transações.
     let listaBase = [...transacoes];
+
+    // ✅ ADICIONADO: ocultar parcelas futuras até chegar no mês selecionado
+    // - só afeta transações parceladas (groupId + parcelaTotal > 1)
+    // - só funciona bem quando existe mesReferencia
+    if (mesReferencia && !mostrarParcelasFuturas) {
+      const chaveMesSelecionado = `${mesReferencia.ano}-${String(mesReferencia.mes + 1).padStart(2, "0")}`;
+
+      listaBase = listaBase.filter((t) => {
+        // Só mexe em parceladas
+        if (!(t.groupId && t.parcelaTotal && t.parcelaTotal > 1)) return true;
+
+        const dt = parseDateValue(t.dataHora);
+        if (isNaN(dt.getTime())) return true;
+
+        const mk = monthKeyFromDate(dt);
+        // Se for parcela de mês FUTURO, esconde
+        return mk <= chaveMesSelecionado;
+      });
+    }
 
     // Filtro por tipo (despesa/receita)
     if (tipoFilter !== "todos") {
@@ -310,6 +340,7 @@ export default function HistoricoPage() {
     dataInicio,
     dataFim,
     mesReferencia,
+    mostrarParcelasFuturas, // ✅ ADICIONADO
   ]);
 
   // Desestrutura o resultado para usar direto no JSX
@@ -508,6 +539,37 @@ export default function HistoricoPage() {
         <h3>
           Resumo de {nomeMes} / {mesReferencia?.ano ?? new Date().getFullYear()}
         </h3>
+
+        {/* ✅ ADICIONADO: botões para mostrar/ocultar parcelas futuras */}
+        <div
+          style={{
+            display: "flex",
+            gap: 8,
+            justifyContent: "flex-start",
+            flexWrap: "wrap",
+            marginTop: 10,
+          }}
+        >
+          <button
+            type="button"
+            className="chip"
+            onClick={() => setMostrarParcelasFuturas(true)}
+            disabled={mostrarParcelasFuturas}
+            title="Mostra também as parcelas dos próximos meses"
+          >
+            👁 Mostrar parcelas futuras
+          </button>
+
+          <button
+            type="button"
+            className="chip"
+            onClick={() => setMostrarParcelasFuturas(false)}
+            disabled={!mostrarParcelasFuturas}
+            title="Oculta parcelas até chegar o mês da cobrança"
+          >
+            🙈 Ocultar parcelas futuras
+          </button>
+        </div>
 
         {/* Se não houver transações no período, mostra mensagem */}
         {totalTransacoesResumo === 0 ? (
