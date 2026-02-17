@@ -1910,56 +1910,16 @@ select:focus {
   background: rgba(148, 163, 184, 0.10);
 }
 
-/* ============================
-   ✅ FIX MODAIS: scroll e mobile (cole no FINAL do CSS)
-============================ */
+/* ✅ COLE ESTE PATCH NO FINAL DO SEU CSS */
 
-/* 1) overlay pode rolar */
-.modal-overlay,
-.modal-backdrop {
-  overflow-y: auto !important;
-  -webkit-overflow-scrolling: touch !important;
-  overscroll-behavior: contain !important;
-
-  /* em mobile é melhor ficar topo do que “travado” no meio */
-  align-items: flex-start !important;
-  justify-content: center !important;
-
-  /* espaço pra não grudar no topo e não bater no nav */
-  padding: 72px 16px 16px !important;
-}
-
-/* 2) o card do modal vira uma caixa rolável */
-.modal-card,
-.modal {
-  max-height: calc(100vh - 120px) !important; /* ✅ altura máxima */
-  overflow-y: auto !important;               /* ✅ scroll dentro */
-  overflow-x: hidden !important;
-  -webkit-overflow-scrolling: touch !important;
-  overscroll-behavior: contain !important;
-}
-
-/* 3) Se algum modal estiver “matando” o scroll por causa de display/altura */
-.modal-card * ,
-.modal * {
-  max-width: 100%;
-}
-
-/* 4) (opcional) melhora toque no iOS/Android */
-.modal-card,
-.modal,
-.modal-overlay,
-.modal-backdrop {
-  touch-action: pan-y !important;
-}
 /* ============================
    ✅ Semanas 2x2 alinhadas
 ============================ */
 
 .weeks-grid{
   display: grid;
-  grid-template-columns: 1fr 1fr; /* ✅ 2 colunas */
-  gap: 12px 12px;                /* ✅ espaçamento certinho */
+  grid-template-columns: 1fr 1fr; /* 2 colunas */
+  gap: 12px 12px;
   align-items: end;
   margin-top: 10px;
 }
@@ -1977,7 +1937,7 @@ select:focus {
 }
 
 .week-bar-wrap{
-  height: 120px;                 /* ✅ mesma “altura do gráfico” */
+  height: 120px;
   width: 100%;
   display: flex;
   align-items: flex-end;
@@ -1985,7 +1945,6 @@ select:focus {
 }
 
 .week-bar{
-  width: 70%;                    /* ✅ barra consistente */
+  width: 70%;
   max-width: 120px;
 }
-
