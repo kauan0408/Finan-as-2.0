@@ -1952,3 +1952,40 @@ select:focus {
 .modal-backdrop {
   touch-action: pan-y !important;
 }
+/* ============================
+   ✅ Semanas 2x2 alinhadas
+============================ */
+
+.weeks-grid{
+  display: grid;
+  grid-template-columns: 1fr 1fr; /* ✅ 2 colunas */
+  gap: 12px 12px;                /* ✅ espaçamento certinho */
+  align-items: end;
+  margin-top: 10px;
+}
+
+.week-cell{
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.week-value{
+  margin-bottom: 6px;
+  text-align: center;
+}
+
+.week-bar-wrap{
+  height: 120px;                 /* ✅ mesma “altura do gráfico” */
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.week-bar{
+  width: 70%;                    /* ✅ barra consistente */
+  max-width: 120px;
+}
+
