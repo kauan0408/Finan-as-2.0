@@ -666,7 +666,7 @@ export default function FinancasPage() {
 
           {/* ✅ ALTERADO: Sem 1 e Sem 2 em cima / Sem 3 e Sem 4 em baixo */}
           <div
-            className="bar-chart"
+            className="weeks-grid"
             style={{ display: "flex", flexDirection: "column", gap: 12 }}
           >
             {[
@@ -849,3 +849,4 @@ export default function FinancasPage() {
     </div>
   );
 }
+
