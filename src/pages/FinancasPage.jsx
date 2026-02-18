@@ -1,6 +1,6 @@
 // src/pages/FinancasPage.jsx
 
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { useFinance } from "../App.jsx";
 
 function formatCurrency(value) {
@@ -102,17 +102,7 @@ function isFood(desc) {
 
 function isTransport(desc) {
   const d = normalizeText(desc);
-  const keys = [
-    "uber",
-    "99",
-    "taxi",
-    "táxi",
-    "onibus",
-    "ônibus",
-    "passagem",
-    "transporte",
-    "corrida",
-  ];
+  const keys = ["uber", "99", "taxi", "táxi", "onibus", "ônibus", "passagem", "transporte", "corrida"];
   return keys.some((k) => d.includes(normalizeText(k)));
 }
 
@@ -131,10 +121,82 @@ function prevMonth(ano, mes0) {
   return { ano: y, mes: m };
 }
 
+/* -------------------- ✅ ADICIONADO: helpers para lembretes (compacto) -------------------- */
+
+function pad2(n) {
+  return String(n).padStart(2, "0");
+}
+
+function toLocalDateKey(d = new Date()) {
+  const x = new Date(d);
+  return `${x.getFullYear()}-${pad2(x.getMonth() + 1)}-${pad2(x.getDate())}`;
+}
+
+function startOfDay(dateObj) {
+  const d = new Date(dateObj);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function endOfDay(dateObj) {
+  const d = new Date(dateObj);
+  d.setHours(23, 59, 59, 999);
+  return d;
+}
+
+function addDays(dateObj, days) {
+  const d = new Date(dateObj);
+  d.setDate(d.getDate() + Number(days || 0));
+  return d;
+}
+
+function parseLocalDateTime(v) {
+  try {
+    const [datePart, timePart] = String(v || "").split("T");
+    if (!datePart || !timePart) return null;
+    const [y, m, d] = datePart.split("-").map(Number);
+    const [hh, mm] = timePart.split(":").map(Number);
+    if (!y || !m || !d) return null;
+    return new Date(y, (m || 1) - 1, d || 1, hh || 0, mm || 0, 0, 0);
+  } catch {
+    return null;
+  }
+}
+
+function fmtShortBR(d) {
+  try {
+    const x = new Date(d);
+    if (Number.isNaN(x.getTime())) return "";
+    return x.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+  } catch {
+    return "";
+  }
+}
+
+function fmtTimeHHmm(d) {
+  try {
+    const x = new Date(d);
+    if (Number.isNaN(x.getTime())) return "";
+    return x.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  } catch {
+    return "";
+  }
+}
+
+/* ---------------------------------------------------------------------------------------- */
+
 export default function FinancasPage() {
   // ✅ importante: irParaMesAtual agora usa o “mês financeiro” (ajustado no App.jsx)
-  const { transacoes, profile, mesReferencia, mudarMesReferencia, irParaMesAtual } =
-    useFinance();
+  const {
+    transacoes,
+    profile,
+    mesReferencia,
+    mudarMesReferencia,
+    irParaMesAtual,
+
+    // ✅ ADICIONADO: puxar lembretes do mesmo contexto do app
+    lembretes,
+  } = useFinance();
 
   // ✅ modal ao clicar em "Gasto por categoria"
   const [modalCategorias, setModalCategorias] = useState(false);
@@ -158,10 +220,7 @@ export default function FinancasPage() {
 
       const chaveMes = monthKey(ano, mes0);
 
-      const gastosFixosPerfil = (Array.isArray(profile?.gastosFixos)
-        ? profile.gastosFixos
-        : []
-      )
+      const gastosFixosPerfil = (Array.isArray(profile?.gastosFixos) ? profile.gastosFixos : [])
         .filter((g) => g.ativo !== false)
         .filter(
           (g) =>
@@ -204,10 +263,7 @@ export default function FinancasPage() {
         }
       });
 
-      const totalGastosFixos = gastosFixosPerfil.reduce(
-        (acc, g) => acc + Number(g.valor || 0),
-        0
-      );
+      const totalGastosFixos = gastosFixosPerfil.reduce((acc, g) => acc + Number(g.valor || 0), 0);
 
       const despesas = despesasTransacoes + totalGastosFixos;
 
@@ -441,6 +497,98 @@ export default function FinancasPage() {
     };
   }, [transacoes, mesReferencia, resumoAtual.gastosFixos]);
 
+  /* -------------------- ✅ ADICIONADO: dados compactos de lembretes para o card principal -------------------- */
+
+  // fallback (se por algum motivo não vier do contexto, tenta pegar do localStorage antigo)
+  const [lembretesFallback, setLembretesFallback] = useState([]);
+  useEffect(() => {
+    try {
+      if (Array.isArray(lembretes) && lembretes.length) return;
+      const raw = localStorage.getItem("pwa_lembretes_v1") || "[]";
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) setLembretesFallback(parsed);
+    } catch {}
+  }, [lembretes]);
+
+  const lembretesList = Array.isArray(lembretes) && lembretes.length ? lembretes : lembretesFallback;
+
+  const lembretesCompact = useMemo(() => {
+    const list = Array.isArray(lembretesList) ? lembretesList : [];
+
+    const now = new Date();
+    const from = startOfDay(now);
+    const to = endOfDay(now);
+
+    // transforma tudo em “eventos” comparáveis
+    const events = list
+      .map((it) => {
+        if (!it) return null;
+
+        if (it.tipo === "avulso") {
+          if (it.done) return null;
+          const dt = parseLocalDateTime(it.quando);
+          if (!dt || Number.isNaN(dt.getTime())) return null;
+          return {
+            id: it.id,
+            tipo: "avulso",
+            titulo: it.titulo || "Sem título",
+            when: dt,
+            whenISO: dt.toISOString(),
+          };
+        }
+
+        if (it.tipo === "recorrente") {
+          if (it.enabled === false) return null;
+          const dt = new Date(it.nextDueISO || "");
+          if (!dt || Number.isNaN(dt.getTime())) return null;
+          return {
+            id: it.id,
+            tipo: "recorrente",
+            titulo: it.titulo || "Sem título",
+            when: dt,
+            whenISO: dt.toISOString(),
+            scheduleType: it.scheduleType || "intervalo",
+          };
+        }
+
+        return null;
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.when.getTime() - b.when.getTime());
+
+    const today = events.filter((e) => e.when.getTime() >= from.getTime() && e.when.getTime() <= to.getTime());
+
+    const upcoming = events
+      .filter((e) => e.when.getTime() > to.getTime())
+      .slice(0, 6);
+
+    // “mini calendário” 7 dias (hoje + 6)
+    const days = Array.from({ length: 7 }).map((_, idx) => {
+      const d = addDays(from, idx);
+      const key = toLocalDateKey(d);
+
+      let count = 0;
+      for (const ev of events) {
+        if (toLocalDateKey(ev.when) === key) count++;
+      }
+
+      return {
+        key,
+        date: d,
+        count,
+      };
+    });
+
+    return {
+      today: today.slice(0, 3), // compacto (máx 3)
+      todayCount: today.length,
+      upcoming,
+      days,
+    };
+  }, [lembretesList]);
+
+  /* ----------------------------------------------------------------------------------------------------------- */
+
   return (
     <div className="page">
       <h2 className="page-title">Visão geral do mês</h2>
@@ -471,18 +619,14 @@ export default function FinancasPage() {
         <div className="resumo-top">
           <div>
             <p className="resumo-label">Salário fixo</p>
-            <p className="resumo-value">
-              {salarioFixo ? formatCurrency(salarioFixo) : "Defina na aba Perfil"}
-            </p>
+            <p className="resumo-value">{salarioFixo ? formatCurrency(salarioFixo) : "Defina na aba Perfil"}</p>
           </div>
 
           <div className="pill">
             {diaPagamento ? (
               <>
                 <span>Dia {diaPagamento}</span>
-                {proximoPag && (
-                  <span className="pill-sub">Próx. em {proximoPag.diasRestantes} dia(s)</span>
-                )}
+                {proximoPag && <span className="pill-sub">Próx. em {proximoPag.diasRestantes} dia(s)</span>}
               </>
             ) : (
               <span>Sem dia definido</span>
@@ -492,17 +636,14 @@ export default function FinancasPage() {
 
         <div className="resumo-footer">
           {resultadoSalario === null ? (
-            <p className="muted small">
-              Defina sua renda mensal fixa na aba Perfil para calcular sobras.
-            </p>
+            <p className="muted small">Defina sua renda mensal fixa na aba Perfil para calcular sobras.</p>
           ) : (
             <span
               className={
                 "badge badge-pill " + (resultadoSalario >= 0 ? "badge-positive" : "badge-negative")
               }
             >
-              {resultadoSalario >= 0 ? "Sobrou" : "Faltou"}{" "}
-              {formatCurrency(Math.abs(resultadoSalario))}
+              {resultadoSalario >= 0 ? "Sobrou" : "Faltou"} {formatCurrency(Math.abs(resultadoSalario))}
             </span>
           )}
         </div>
@@ -517,6 +658,101 @@ export default function FinancasPage() {
             </p>
           </div>
         )}
+
+        {/* ✅ ADICIONADO: Lembretes do dia + mini calendário (compacto, sem ocupar muito espaço) */}
+        <div style={{ marginTop: 12 }}>
+          <div
+            className="card"
+            style={{
+              padding: 10,
+              background: "rgba(255,255,255,.03)",
+              border: "1px solid rgba(255,255,255,.08)",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontWeight: 800, fontSize: 14 }}>📌 Lembretes</div>
+                <div className="muted small" style={{ marginTop: 2 }}>
+                  Hoje: <b>{lembretesCompact.todayCount}</b>
+                  {lembretesCompact.todayCount > 3 ? " (mostrando 3)" : ""}
+                </div>
+              </div>
+
+              {/* mini calendário 7 dias */}
+              <div style={{ display: "flex", gap: 6, alignItems: "flex-end", flexWrap: "nowrap" }}>
+                {lembretesCompact.days.map((d, idx) => {
+                  const isToday = idx === 0;
+                  const count = d.count || 0;
+                  const dotOpacity = count ? 1 : 0.25;
+
+                  return (
+                    <div
+                      key={d.key}
+                      title={`${fmtShortBR(d.date)} • ${count} lembrete(s)`}
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        width: 34,
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: isToday ? 10 : 8,
+                          height: isToday ? 10 : 8,
+                          borderRadius: 999,
+                          background: "rgba(143,163,255,.95)",
+                          opacity: dotOpacity,
+                          boxShadow: isToday ? "0 0 0 2px rgba(143,163,255,.25)" : "none",
+                        }}
+                      />
+                      <div className="muted small" style={{ marginTop: 4, fontSize: 11 }}>
+                        {fmtShortBR(d.date)}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* lista compacta do dia */}
+            {lembretesCompact.today.length === 0 ? (
+              <div className="muted small" style={{ marginTop: 8 }}>
+                Nada para hoje 🎉
+              </div>
+            ) : (
+              <ul className="list" style={{ marginTop: 8 }}>
+                {lembretesCompact.today.map((t) => (
+                  <li key={t.id} className="list-item" style={{ padding: "8px 10px" }}>
+                    <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {t.titulo}{" "}
+                      <span className="muted small" style={{ fontWeight: 600 }}>
+                        • {t.tipo === "recorrente" ? "recorrente" : "avulso"}
+                      </span>
+                    </span>
+                    <span className="muted small" style={{ whiteSpace: "nowrap" }}>
+                      {fmtTimeHHmm(t.when)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {/* próximos (bem compacto) */}
+            {lembretesCompact.upcoming.length > 0 && (
+              <div className="muted small" style={{ marginTop: 8, lineHeight: 1.35 }}>
+                Próximos:
+                {" "}
+                {lembretesCompact.upcoming.slice(0, 3).map((u, idx) => (
+                  <span key={u.id}>
+                    <b>{fmtShortBR(u.when)}</b> {fmtTimeHHmm(u.when)} — {u.titulo}
+                    {idx < Math.min(3, lembretesCompact.upcoming.length) - 1 ? " • " : ""}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* RECEITAS / DESPESAS / SALDO / CRÉDITO */}
