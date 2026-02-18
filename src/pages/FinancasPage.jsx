@@ -1,7 +1,7 @@
 // src/pages/FinancasPage.jsx
-import React, { useMemo, useState } from "react";
+
+import React, { useMemo, useState, useEffect } from "react";
 import { useFinance } from "../App.jsx";
-import { useNavigate } from "react-router-dom";
 
 function formatCurrency(value) {
   const num = Number(value || 0);
@@ -55,7 +55,7 @@ function normalizarNome(descricao) {
     .replace(/\s+/g, " ");
 }
 
-// ✅ normaliza texto
+// ✅ ADICIONADO: normaliza texto para regras automáticas
 function normalizeText(s) {
   return String(s || "")
     .trim()
@@ -65,7 +65,7 @@ function normalizeText(s) {
     .replace(/\s+/g, " ");
 }
 
-// ✅ regras automáticas (comida / transporte)
+// ✅ ADICIONADO: regras automáticas (comida / transporte)
 function isFood(desc) {
   const d = normalizeText(desc);
   const keys = [
@@ -74,13 +74,17 @@ function isFood(desc) {
     "lanche",
     "comida",
     "cafe",
+    "café",
     "cafe da tarde",
+    "café da tarde",
     "almoco",
+    "almoço",
     "jantar",
     "refri",
     "refrigerante",
     "coca",
     "guarana",
+    "guaraná",
     "miojo",
     "doce",
     "pudim",
@@ -88,15 +92,17 @@ function isFood(desc) {
     "salgado",
     "pizza",
     "hamburguer",
+    "hambúrguer",
     "sorvete",
     "acai",
+    "açaí",
   ];
   return keys.some((k) => d.includes(normalizeText(k)));
 }
 
 function isTransport(desc) {
   const d = normalizeText(desc);
-  const keys = ["uber", "99", "taxi", "onibus", "passagem", "transporte", "corrida"];
+  const keys = ["uber", "99", "taxi", "táxi", "onibus", "ônibus", "passagem", "transporte", "corrida"];
   return keys.some((k) => d.includes(normalizeText(k)));
 }
 
@@ -115,7 +121,8 @@ function prevMonth(ano, mes0) {
   return { ano: y, mes: m };
 }
 
-/* --------- helpers data (lembretes) --------- */
+/* -------------------- ✅ ADICIONADO: helpers para lembretes (compacto) -------------------- */
+
 function pad2(n) {
   return String(n).padStart(2, "0");
 }
@@ -123,6 +130,24 @@ function pad2(n) {
 function toLocalDateKey(d = new Date()) {
   const x = new Date(d);
   return `${x.getFullYear()}-${pad2(x.getMonth() + 1)}-${pad2(x.getDate())}`;
+}
+
+function startOfDay(dateObj) {
+  const d = new Date(dateObj);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function endOfDay(dateObj) {
+  const d = new Date(dateObj);
+  d.setHours(23, 59, 59, 999);
+  return d;
+}
+
+function addDays(dateObj, days) {
+  const d = new Date(dateObj);
+  d.setDate(d.getDate() + Number(days || 0));
+  return d;
 }
 
 function parseLocalDateTime(v) {
@@ -138,125 +163,40 @@ function parseLocalDateTime(v) {
   }
 }
 
-function fmtDiaMesBR(d) {
-  const x = new Date(d);
-  return `${pad2(x.getDate())}/${pad2(x.getMonth() + 1)}`;
-}
-
-function fmtHoraBR(d) {
-  const x = new Date(d);
-  return `${pad2(x.getHours())}:${pad2(x.getMinutes())}`;
-}
-
-/* --------- Classificador automático (modal) --------- */
-// ✅ simples (por palavra-chave) pra encaixar em “mais parecida”
-const TAXONOMIA = [
-  {
-    grupo: "ESSENCIAIS",
-    itens: [
-      { nome: "Aluguel / Financiamento", keys: ["aluguel", "financi", "prestacao casa", "parcela casa", "imovel"] },
-      { nome: "Água", keys: ["agua", "copasa", "saae"] },
-      { nome: "Luz", keys: ["luz", "energia", "cemig", "enel"] },
-      { nome: "Internet", keys: ["internet", "wifi", "vivo fibra", "claro net", "oi fibra", "tim live"] },
-      { nome: "Gás", keys: ["gas", "botijao", "ultragaz"] },
-      { nome: "Mercado", keys: ["mercado", "supermerc", "atacadao", "assai", "carrefour", "padaria", "hortifruti"] },
-      { nome: "Transporte", keys: ["uber", "99", "taxi", "onibus", "passagem", "combust", "gasolina"] },
-      { nome: "Farmácia", keys: ["farmacia", "remedio", "drogaria", "droga"] },
-      { nome: "Plano de saúde", keys: ["plano", "unimed", "saude", "consulta", "medico"] },
-    ],
-  },
-  {
-    grupo: "FINANCEIRO",
-    itens: [
-      { nome: "Cartão de crédito", keys: ["cartao", "credito", "fatura"] },
-      { nome: "Parcelamentos", keys: ["parcela", "parcelado", "parcelamento"] },
-      { nome: "Empréstimos", keys: ["emprest", "consignado"] },
-      { nome: "Reserva de emergência", keys: ["reserva", "emergencia"] },
-      { nome: "Investimentos", keys: ["invest", "cdb", "tesouro", "acao", "cripto", "bitcoin"] },
-      { nome: "Taxas bancárias", keys: ["taxa", "tarifa", "anuidade", "iof"] },
-    ],
-  },
-  {
-    grupo: "EDUCAÇÃO & DESENVOLVIMENTO",
-    itens: [
-      { nome: "Escola / Faculdade", keys: ["escola", "faculdade", "mensalidade"] },
-      { nome: "Cursos", keys: ["curso", "udemy", "alura"] },
-      { nome: "Livros", keys: ["livro", "apostila"] },
-      { nome: "Material escolar", keys: ["material", "caderno", "caneta", "lapis"] },
-      { nome: "Concursos / ENEM", keys: ["enem", "concurso", "inscricao"] },
-    ],
-  },
-  {
-    grupo: "LAZER & QUALIDADE DE VIDA",
-    itens: [
-      { nome: "Restaurantes", keys: ["restaurante", "churrascaria"] },
-      { nome: "Delivery", keys: ["ifood", "delivery", "lanche", "pizza", "hamburg"] },
-      { nome: "Cinema / Streaming", keys: ["cinema", "netflix", "prime", "hbo", "spotify", "stream"] },
-      { nome: "Festa", keys: ["festa", "evento", "ingresso"] },
-      { nome: "Academia", keys: ["academia", "gym"] },
-      { nome: "Passeios", keys: ["passeio", "viagem", "parque"] },
-    ],
-  },
-  {
-    grupo: "PESSOAL",
-    itens: [
-      { nome: "Roupas", keys: ["roupa", "calcado", "tenis", "sapato"] },
-      { nome: "Salão", keys: ["salao", "cabelo", "barbearia"] },
-      { nome: "Cosméticos", keys: ["cosmetico", "perfume", "maqui"] },
-      { nome: "Cuidados pessoais", keys: ["higiene", "desodorante", "sabonete"] },
-    ],
-  },
-  {
-    grupo: "CASA",
-    itens: [
-      { nome: "Manutenção", keys: ["manutenc", "reparo", "conserto casa"] },
-      { nome: "Produtos de limpeza", keys: ["limpeza", "detergente", "sabao", "desinfet"] },
-      { nome: "Móveis", keys: ["movel", "sofa", "mesa", "cadeira"] },
-      { nome: "Utensílios", keys: ["utens", "panela", "prato", "copo"] },
-    ],
-  },
-  {
-    grupo: "IMPREVISTOS",
-    itens: [
-      { nome: "Conserto de carro", keys: ["conserto carro", "mecan", "oficina", "pneu"] },
-      { nome: "Emergência médica", keys: ["emergencia", "pronto socorro", "exame"] },
-      { nome: "Multas", keys: ["multa"] },
-      { nome: "Conserto de celular", keys: ["conserto celular", "tela", "assistencia"] },
-    ],
-  },
-];
-
-function classificarTaxonomia(descricao) {
-  const d = normalizeText(descricao || "");
-  if (!d) return { grupo: "OUTROS", item: "Outros" };
-
-  let best = { score: 0, grupo: "OUTROS", item: "Outros" };
-
-  for (const g of TAXONOMIA) {
-    for (const it of g.itens) {
-      const hits = (it.keys || []).reduce((acc, k) => (d.includes(normalizeText(k)) ? acc + 1 : acc), 0);
-      if (hits > best.score) best = { score: hits, grupo: g.grupo, item: it.nome };
-    }
+function fmtShortBR(d) {
+  try {
+    const x = new Date(d);
+    if (Number.isNaN(x.getTime())) return "";
+    return x.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+  } catch {
+    return "";
   }
-
-  if (best.score <= 0) return { grupo: "OUTROS", item: "Outros" };
-  return { grupo: best.grupo, item: best.item };
 }
+
+function fmtTimeHHmm(d) {
+  try {
+    const x = new Date(d);
+    if (Number.isNaN(x.getTime())) return "";
+    return x.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  } catch {
+    return "";
+  }
+}
+
+/* ---------------------------------------------------------------------------------------- */
 
 export default function FinancasPage() {
-  const navigate = useNavigate();
-
-  // ✅ pega também lembretes (do mesmo contexto)
+  // ✅ importante: irParaMesAtual agora usa o “mês financeiro” (ajustado no App.jsx)
   const {
     transacoes,
     profile,
     mesReferencia,
     mudarMesReferencia,
     irParaMesAtual,
+
+    // ✅ ADICIONADO: puxar lembretes do mesmo contexto do app
     lembretes,
   } = useFinance();
-
-  const listLembretes = Array.isArray(lembretes) ? lembretes : [];
 
   // ✅ modal ao clicar em "Gasto por categoria"
   const [modalCategorias, setModalCategorias] = useState(false);
@@ -425,7 +365,6 @@ export default function FinancasPage() {
   const diaPagamento = profile?.diaPagamento || "";
   const proximoPag = diaPagamento ? calcularProximoPagamento(diaPagamento) : null;
 
-  // ✅ (mantém cálculo, mas NÃO mostra aqueles textos que você pediu pra tirar)
   const resultadoSalario =
     salarioFixo > 0 ? salarioFixo - resumoAtual.despesas - pendenteAnterior : null;
 
@@ -454,7 +393,7 @@ export default function FinancasPage() {
   const percLimite =
     limiteGastoMensal > 0 ? Math.min(100, (resumoAtual.despesas / limiteGastoMensal) * 100) : 0;
 
-  const nomeMesArr = [
+  const nomeMes = [
     "Janeiro",
     "Fevereiro",
     "Março",
@@ -467,9 +406,7 @@ export default function FinancasPage() {
     "Outubro",
     "Novembro",
     "Dezembro",
-  ];
-
-  const nomeMes = nomeMesArr[mesReferencia.mes];
+  ][mesReferencia.mes];
 
   // ✅ dados do modal de categorias (organiza sozinho)
   const detalhesCategorias = useMemo(() => {
@@ -502,25 +439,10 @@ export default function FinancasPage() {
     const transport = [];
     const other = [];
 
-    // ✅ NOVO: estatística por “Categorias de Gastos” (taxonomia)
-    const taxo = new Map(); // grupo -> Map(item -> total)
-    const taxoCounts = new Map();
-
     tudo.forEach((t) => {
       if (isFood(t.descricao)) food.push(t);
       else if (isTransport(t.descricao)) transport.push(t);
       else other.push(t);
-
-      const cls = classificarTaxonomia(t.descricao);
-      const g = cls.grupo;
-      const it = cls.item;
-
-      if (!taxo.has(g)) taxo.set(g, new Map());
-      const m = taxo.get(g);
-      m.set(it, (m.get(it) || 0) + Number(t.valor || 0));
-
-      const kCount = `${g}__${it}`;
-      taxoCounts.set(kCount, (taxoCounts.get(kCount) || 0) + 1);
     });
 
     const sum = (arr) => arr.reduce((s, x) => s + Number(x.valor || 0), 0);
@@ -563,22 +485,6 @@ export default function FinancasPage() {
       else totalPorCategoria.outras += t.valor;
     });
 
-    // ✅ transforma taxonomia em arrays ordenados
-    const taxoGroups = Array.from(taxo.entries()).map(([grupo, itemsMap]) => {
-      const items = Array.from(itemsMap.entries())
-        .map(([item, total]) => {
-          const count = taxoCounts.get(`${grupo}__${item}`) || 0;
-          return { item, total, count };
-        })
-        .sort((a, b) => b.total - a.total);
-
-      const totalGrupo = items.reduce((s, x) => s + x.total, 0);
-      return { grupo, totalGrupo, items };
-    });
-
-    // ordena grupos por total
-    taxoGroups.sort((a, b) => b.totalGrupo - a.totalGrupo);
-
     return {
       totalMes: sum(tudo),
       totalFood: sum(food),
@@ -588,54 +494,100 @@ export default function FinancasPage() {
       transportByDesc,
       foodPorCategoria,
       totalPorCategoria,
-      taxoGroups,
     };
   }, [transacoes, mesReferencia, resumoAtual.gastosFixos]);
 
-  /* --------- Lembretes compact (Hoje + próximos) --------- */
-  const lembretesCompact = useMemo(() => {
-    const now = new Date();
-    const todayKey = toLocalDateKey(now);
+  /* -------------------- ✅ ADICIONADO: dados compactos de lembretes para o card principal -------------------- */
 
-    const items = listLembretes
-      .map((i) => {
-        if (i.tipo === "avulso") {
-          if (i.done) return null;
-          const dt = parseLocalDateTime(i.quando);
-          if (!dt) return null;
-          return { id: i.id, titulo: i.titulo, when: dt, tipo: "avulso" };
+  // fallback (se por algum motivo não vier do contexto, tenta pegar do localStorage antigo)
+  const [lembretesFallback, setLembretesFallback] = useState([]);
+  useEffect(() => {
+    try {
+      if (Array.isArray(lembretes) && lembretes.length) return;
+      const raw = localStorage.getItem("pwa_lembretes_v1") || "[]";
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) setLembretesFallback(parsed);
+    } catch {}
+  }, [lembretes]);
+
+  const lembretesList = Array.isArray(lembretes) && lembretes.length ? lembretes : lembretesFallback;
+
+  const lembretesCompact = useMemo(() => {
+    const list = Array.isArray(lembretesList) ? lembretesList : [];
+
+    const now = new Date();
+    const from = startOfDay(now);
+    const to = endOfDay(now);
+
+    // transforma tudo em “eventos” comparáveis
+    const events = list
+      .map((it) => {
+        if (!it) return null;
+
+        if (it.tipo === "avulso") {
+          if (it.done) return null;
+          const dt = parseLocalDateTime(it.quando);
+          if (!dt || Number.isNaN(dt.getTime())) return null;
+          return {
+            id: it.id,
+            tipo: "avulso",
+            titulo: it.titulo || "Sem título",
+            when: dt,
+            whenISO: dt.toISOString(),
+          };
         }
-        if (i.tipo === "recorrente") {
-          if (i.enabled === false) return null;
-          const dt = new Date(i.nextDueISO || "");
-          if (Number.isNaN(dt.getTime())) return null;
-          return { id: i.id, titulo: i.titulo, when: dt, tipo: "recorrente" };
+
+        if (it.tipo === "recorrente") {
+          if (it.enabled === false) return null;
+          const dt = new Date(it.nextDueISO || "");
+          if (!dt || Number.isNaN(dt.getTime())) return null;
+          return {
+            id: it.id,
+            tipo: "recorrente",
+            titulo: it.titulo || "Sem título",
+            when: dt,
+            whenISO: dt.toISOString(),
+            scheduleType: it.scheduleType || "intervalo",
+          };
         }
+
         return null;
       })
       .filter(Boolean)
       .sort((a, b) => a.when.getTime() - b.when.getTime());
 
-    const today = items.filter((x) => toLocalDateKey(x.when) === todayKey);
-    const upcoming = items.filter((x) => x.when.getTime() > now.getTime()).slice(0, 2);
+    const today = events.filter((e) => e.when.getTime() >= from.getTime() && e.when.getTime() <= to.getTime());
 
-    // mini calendário: próximos 7 dias
-    const days = [];
-    for (let k = 0; k < 7; k++) {
-      const d = new Date(now);
-      d.setDate(d.getDate() + k);
+    const upcoming = events
+      .filter((e) => e.when.getTime() > to.getTime())
+      .slice(0, 6);
+
+    // “mini calendário” 7 dias (hoje + 6)
+    const days = Array.from({ length: 7 }).map((_, idx) => {
+      const d = addDays(from, idx);
       const key = toLocalDateKey(d);
-      const count = items.filter((x) => toLocalDateKey(x.when) === key).length;
-      days.push({ key, date: d, count });
-    }
 
-    return { today, upcoming, days };
-  }, [listLembretes]);
+      let count = 0;
+      for (const ev of events) {
+        if (toLocalDateKey(ev.when) === key) count++;
+      }
 
-  function goToLembretes() {
-    // ajuste aqui se sua rota for diferente
-    navigate("/lembretes");
-  }
+      return {
+        key,
+        date: d,
+        count,
+      };
+    });
+
+    return {
+      today: today.slice(0, 3), // compacto (máx 3)
+      todayCount: today.length,
+      upcoming,
+      days,
+    };
+  }, [lembretesList]);
+
+  /* ----------------------------------------------------------------------------------------------------------- */
 
   return (
     <div className="page">
@@ -644,7 +596,7 @@ export default function FinancasPage() {
       {/* NAVEGAÇÃO DO MÊS */}
       <div className="card" style={{ textAlign: "center", marginBottom: 12 }}>
         <h3>
-          {nomeMesArr[mesReferencia.mes]} / {mesReferencia.ano}
+          {nomeMes} / {mesReferencia.ano}
         </h3>
 
         <div style={{ display: "flex", justifyContent: "space-between", marginTop: 10 }}>
@@ -662,32 +614,30 @@ export default function FinancasPage() {
         </div>
       </div>
 
-      {/* ✅ BLOCO PRINCIPAL (SEM os textos que você mandou tirar) */}
+      {/* BLOCO PRINCIPAL */}
       <div className="card resumo-card">
-        <div className="resumo-top" style={{ gap: 10 }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <p className="resumo-label">Salário</p>
-            <p className="resumo-value">{salarioFixo ? formatCurrency(salarioFixo) : "—"}</p>
+        <div className="resumo-top">
+          <div>
+            <p className="resumo-label">Salário fixo</p>
+            <p className="resumo-value">{salarioFixo ? formatCurrency(salarioFixo) : "Defina na aba Perfil"}</p>
           </div>
 
-          {/* ✅ DIA/PRÓXIMO (fica “na frente” do pendente visualmente, porque o pendente vem logo abaixo) */}
-          <div className="pill" style={{ flexShrink: 0 }}>
+          <div className="pill">
             {diaPagamento ? (
               <>
                 <span>Dia {diaPagamento}</span>
-                {proximoPag && (
-                  <span className="pill-sub">Próx. em {proximoPag.diasRestantes} dia(s)</span>
-                )}
+                {proximoPag && <span className="pill-sub">Próx. em {proximoPag.diasRestantes} dia(s)</span>}
               </>
             ) : (
-              <span>Sem dia</span>
+              <span>Sem dia definido</span>
             )}
           </div>
         </div>
 
-        {/* ✅ mostra só “Sobrou/Faltou” (sem aquele texto grande) */}
-        <div className="resumo-footer" style={{ marginTop: 6 }}>
-          {resultadoSalario === null ? null : (
+        <div className="resumo-footer">
+          {resultadoSalario === null ? (
+            <p className="muted small">Defina sua renda mensal fixa na aba Perfil para calcular sobras.</p>
+          ) : (
             <span
               className={
                 "badge badge-pill " + (resultadoSalario >= 0 ? "badge-positive" : "badge-negative")
@@ -698,76 +648,110 @@ export default function FinancasPage() {
           )}
         </div>
 
-        {/* ✅ pendente (SEM o texto explicativo que você mandou tirar) */}
         {pendenteAnterior > 0 && (
           <div style={{ marginTop: 10 }}>
             <span className="badge badge-pill badge-negative">
               Pendente do mês anterior: {formatCurrency(pendenteAnterior)}
             </span>
+            <p className="muted small" style={{ marginTop: 6 }}>
+              Esse valor foi carregado automaticamente porque o mês anterior fechou negativo.
+            </p>
           </div>
         )}
-      </div>
 
-      {/* ✅ LEMBRETES COMPACT (clicável → vai pra página Lembretes) */}
-      <div
-        className="card mt"
-        style={{ cursor: "pointer" }}
-        onClick={goToLembretes}
-        title="Clique para abrir Lembretes"
-      >
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline" }}>
-          <h3 style={{ margin: 0 }}>📌 Lembretes</h3>
-          <div className="muted small">
-            Hoje: <b>{lembretesCompact.today.length}</b>
-          </div>
-        </div>
+        {/* ✅ ADICIONADO: Lembretes do dia + mini calendário (compacto, sem ocupar muito espaço) */}
+        <div style={{ marginTop: 12 }}>
+          <div
+            className="card"
+            style={{
+              padding: 10,
+              background: "rgba(255,255,255,.03)",
+              border: "1px solid rgba(255,255,255,.08)",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontWeight: 800, fontSize: 14 }}>📌 Lembretes</div>
+                <div className="muted small" style={{ marginTop: 2 }}>
+                  Hoje: <b>{lembretesCompact.todayCount}</b>
+                  {lembretesCompact.todayCount > 3 ? " (mostrando 3)" : ""}
+                </div>
+              </div>
 
-        {/* mini calendário 7 dias */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 6, marginTop: 10 }}>
-          {lembretesCompact.days.map((d) => (
-            <div
-              key={d.key}
-              style={{
-                border: "1px solid rgba(255,255,255,.08)",
-                borderRadius: 10,
-                padding: "8px 6px",
-                textAlign: "center",
-                lineHeight: 1.1,
-              }}
-            >
-              <div style={{ fontWeight: 800 }}>{fmtDiaMesBR(d.date)}</div>
-              <div className="muted small" style={{ marginTop: 4 }}>
-                {d.count ? `${d.count}` : " "}
+              {/* mini calendário 7 dias */}
+              <div style={{ display: "flex", gap: 6, alignItems: "flex-end", flexWrap: "nowrap" }}>
+                {lembretesCompact.days.map((d, idx) => {
+                  const isToday = idx === 0;
+                  const count = d.count || 0;
+                  const dotOpacity = count ? 1 : 0.25;
+
+                  return (
+                    <div
+                      key={d.key}
+                      title={`${fmtShortBR(d.date)} • ${count} lembrete(s)`}
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        width: 34,
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: isToday ? 10 : 8,
+                          height: isToday ? 10 : 8,
+                          borderRadius: 999,
+                          background: "rgba(143,163,255,.95)",
+                          opacity: dotOpacity,
+                          boxShadow: isToday ? "0 0 0 2px rgba(143,163,255,.25)" : "none",
+                        }}
+                      />
+                      <div className="muted small" style={{ marginTop: 4, fontSize: 11 }}>
+                        {fmtShortBR(d.date)}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
-          ))}
-        </div>
 
-        {/* Hoje */}
-        <div style={{ marginTop: 10 }}>
-          {lembretesCompact.today.length === 0 ? (
-            <div className="muted">Nada para hoje 🎉</div>
-          ) : (
-            <ul className="list" style={{ marginTop: 6 }}>
-              {lembretesCompact.today.slice(0, 3).map((t) => (
-                <li key={t.id} className="list-item">
-                  <span>
-                    {fmtDiaMesBR(t.when)} {fmtHoraBR(t.when)} — {t.titulo}
+            {/* lista compacta do dia */}
+            {lembretesCompact.today.length === 0 ? (
+              <div className="muted small" style={{ marginTop: 8 }}>
+                Nada para hoje 🎉
+              </div>
+            ) : (
+              <ul className="list" style={{ marginTop: 8 }}>
+                {lembretesCompact.today.map((t) => (
+                  <li key={t.id} className="list-item" style={{ padding: "8px 10px" }}>
+                    <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {t.titulo}{" "}
+                      <span className="muted small" style={{ fontWeight: 600 }}>
+                        • {t.tipo === "recorrente" ? "recorrente" : "avulso"}
+                      </span>
+                    </span>
+                    <span className="muted small" style={{ whiteSpace: "nowrap" }}>
+                      {fmtTimeHHmm(t.when)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {/* próximos (bem compacto) */}
+            {lembretesCompact.upcoming.length > 0 && (
+              <div className="muted small" style={{ marginTop: 8, lineHeight: 1.35 }}>
+                Próximos:
+                {" "}
+                {lembretesCompact.upcoming.slice(0, 3).map((u, idx) => (
+                  <span key={u.id}>
+                    <b>{fmtShortBR(u.when)}</b> {fmtTimeHHmm(u.when)} — {u.titulo}
+                    {idx < Math.min(3, lembretesCompact.upcoming.length) - 1 ? " • " : ""}
                   </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-
-        {/* Próximos */}
-        <div className="muted small" style={{ marginTop: 8 }}>
-          Próximos:{" "}
-          {lembretesCompact.upcoming.length === 0
-            ? "—"
-            : lembretesCompact.upcoming
-                .map((x) => `${fmtDiaMesBR(x.when)} ${fmtHoraBR(x.when)} — ${x.titulo}`)
-                .join(" • ")}
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -898,42 +882,20 @@ export default function FinancasPage() {
         <div className="card">
           <h3>Gastos por semana</h3>
 
-          {/* ✅ NOVO: tira a “bolota/barra vertical” e usa barra horizontal compacta */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 6 }}>
+          {/* ✅ 2x2 (Sem 1 e 2 em cima / 3 e 4 em baixo) */}
+          <div className="weeks-grid">
             {resumoAtual.semanas.map((v, i) => {
-              const pct = resumoAtual.maxSemana > 0 ? Math.min(100, (v / resumoAtual.maxSemana) * 100) : 0;
+              const height = (v / resumoAtual.maxSemana) * 100;
 
               return (
-                <div
-                  key={i}
-                  style={{
-                    border: "1px solid rgba(255,255,255,.08)",
-                    borderRadius: 12,
-                    padding: 10,
-                  }}
-                >
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-                    <span className="muted small">Sem {i + 1}</span>
-                    <span style={{ fontWeight: 800 подчерк: 0 }}>{formatCurrency(v)}</span>
+                <div className="week-cell" key={i}>
+                  <div className="muted small week-value">{formatCurrency(v)}</div>
+
+                  <div className="week-bar-wrap">
+                    <div className="bar week-bar" style={{ height: `${height || 2}%` }} />
                   </div>
 
-                  <div
-                    style={{
-                      height: 8,
-                      borderRadius: 999,
-                      background: "rgba(255,255,255,.10)",
-                      overflow: "hidden",
-                      marginTop: 8,
-                    }}
-                  >
-                    <div
-                      style={{
-                        height: "100%",
-                        width: `${Math.max(2, pct)}%`,
-                        background: "rgba(143,163,255,.85)",
-                      }}
-                    />
-                  </div>
+                  <span className="bar-label">Sem {i + 1}</span>
                 </div>
               );
             })}
@@ -951,67 +913,9 @@ export default function FinancasPage() {
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
             <h3>Detalhes do mês</h3>
             <p className="muted small" style={{ marginTop: 4 }}>
-              {reflect: ""}{nomeMes} / {mesReferencia.ano}
+              {nomeMes} / {mesReferencia.ano}
             </p>
 
-            {/* ✅ NOVO: Estatística por “Categorias de Gastos” (automático) */}
-            <div className="card" style={{ marginTop: 10 }}>
-              <h4 style={{ marginBottom: 8 }}>CATEGORIAS DE GASTOS</h4>
-
-              {detalhesCategorias.taxoGroups?.length ? (
-                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  {detalhesCategorias.taxoGroups.map((g) => (
-                    <div
-                      key={g.grupo}
-                      style={{
-                        border: "1px solid rgba(255,255,255,.08)",
-                        borderRadius: 12,
-                        padding: 10,
-                      }}
-                    >
-                      <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-                        <b>{g.grupo}</b>
-                        <b>{formatCurrency(g.totalGrupo)}</b>
-                      </div>
-
-                      <div className="muted small" style={{ marginTop: 6 }}>
-                        {g.items.slice(0, 6).map((it, idx) => (
-                          <div
-                            key={idx}
-                            style={{
-                              display: "flex",
-                              justifyContent: "space-between",
-                              gap: 10,
-                              padding: "4px 0",
-                              borderTop: idx === 0 ? "none" : "1px dashed rgba(255,255,255,.10)",
-                            }}
-                          >
-                            <span>
-                              {it.item}
-                              {it.count > 1 ? <span className="muted small"> · {it.count}x</span> : null}
-                            </span>
-                            <span>{formatCurrency(it.total)}</span>
-                          </div>
-                        ))}
-                        {g.items.length > 6 ? (
-                          <div className="muted small" style={{ marginTop: 6 }}>
-                            (+{g.items.length - 6} itens)
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="muted small">Sem dados para classificar.</p>
-              )}
-
-              <p className="muted small" style={{ marginTop: 10 }}>
-                (Isso separa automaticamente pelo nome/descrição e encaixa na opção mais parecida.)
-              </p>
-            </div>
-
-            {/* ✅ MANTÉM as funções antigas do seu modal */}
             <div className="card" style={{ marginTop: 10 }}>
               <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
                 <span>
