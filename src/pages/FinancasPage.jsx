@@ -102,7 +102,17 @@ function isFood(desc) {
 
 function isTransport(desc) {
   const d = normalizeText(desc);
-  const keys = ["uber", "99", "taxi", "táxi", "onibus", "ônibus", "passagem", "transporte", "corrida"];
+  const keys = [
+    "uber",
+    "99",
+    "taxi",
+    "táxi",
+    "onibus",
+    "ônibus",
+    "passagem",
+    "transporte",
+    "corrida",
+  ];
   return keys.some((k) => d.includes(normalizeText(k)));
 }
 
@@ -220,7 +230,10 @@ export default function FinancasPage() {
 
       const chaveMes = monthKey(ano, mes0);
 
-      const gastosFixosPerfil = (Array.isArray(profile?.gastosFixos) ? profile.gastosFixos : [])
+      const gastosFixosPerfil = (Array.isArray(profile?.gastosFixos)
+        ? profile.gastosFixos
+        : []
+      )
         .filter((g) => g.ativo !== false)
         .filter(
           (g) =>
@@ -263,7 +276,10 @@ export default function FinancasPage() {
         }
       });
 
-      const totalGastosFixos = gastosFixosPerfil.reduce((acc, g) => acc + Number(g.valor || 0), 0);
+      const totalGastosFixos = gastosFixosPerfil.reduce(
+        (acc, g) => acc + Number(g.valor || 0),
+        0
+      );
 
       const despesas = despesasTransacoes + totalGastosFixos;
 
@@ -556,11 +572,11 @@ export default function FinancasPage() {
       .filter(Boolean)
       .sort((a, b) => a.when.getTime() - b.when.getTime());
 
-    const today = events.filter((e) => e.when.getTime() >= from.getTime() && e.when.getTime() <= to.getTime());
+    const today = events.filter(
+      (e) => e.when.getTime() >= from.getTime() && e.when.getTime() <= to.getTime()
+    );
 
-    const upcoming = events
-      .filter((e) => e.when.getTime() > to.getTime())
-      .slice(0, 6);
+    const upcoming = events.filter((e) => e.when.getTime() > to.getTime()).slice(0, 6);
 
     // “mini calendário” 7 dias (hoje + 6)
     const days = Array.from({ length: 7 }).map((_, idx) => {
@@ -617,16 +633,14 @@ export default function FinancasPage() {
       {/* BLOCO PRINCIPAL */}
       <div className="card resumo-card">
         <div className="resumo-top">
-          <div>
-            <p className="resumo-label">Salário fixo</p>
-            <p className="resumo-value">{salarioFixo ? formatCurrency(salarioFixo) : "Defina na aba Perfil"}</p>
-          </div>
-
-          <div className="pill">
+          {/* ✅ aqui fica só o pill do pagamento (removeu "Salário fixo" + "Defina na aba Perfil") */}
+          <div className="pill" style={{ marginLeft: "auto" }}>
             {diaPagamento ? (
               <>
                 <span>Dia {diaPagamento}</span>
-                {proximoPag && <span className="pill-sub">Próx. em {proximoPag.diasRestantes} dia(s)</span>}
+                {proximoPag && (
+                  <span className="pill-sub">Próx. em {proximoPag.diasRestantes} dia(s)</span>
+                )}
               </>
             ) : (
               <span>Sem dia definido</span>
@@ -635,15 +649,15 @@ export default function FinancasPage() {
         </div>
 
         <div className="resumo-footer">
-          {resultadoSalario === null ? (
-            <p className="muted small">Defina sua renda mensal fixa na aba Perfil para calcular sobras.</p>
-          ) : (
+          {/* ✅ removeu a frase "Defina sua renda..." */}
+          {resultadoSalario !== null && (
             <span
               className={
                 "badge badge-pill " + (resultadoSalario >= 0 ? "badge-positive" : "badge-negative")
               }
             >
-              {resultadoSalario >= 0 ? "Sobrou" : "Faltou"} {formatCurrency(Math.abs(resultadoSalario))}
+              {resultadoSalario >= 0 ? "Sobrou" : "Faltou"}{" "}
+              {formatCurrency(Math.abs(resultadoSalario))}
             </span>
           )}
         </div>
@@ -653,9 +667,8 @@ export default function FinancasPage() {
             <span className="badge badge-pill badge-negative">
               Pendente do mês anterior: {formatCurrency(pendenteAnterior)}
             </span>
-            <p className="muted small" style={{ marginTop: 6 }}>
-              Esse valor foi carregado automaticamente porque o mês anterior fechou negativo.
-            </p>
+
+            {/* ✅ removeu: "Esse valor foi carregado automaticamente..." */}
           </div>
         )}
 
@@ -724,7 +737,14 @@ export default function FinancasPage() {
               <ul className="list" style={{ marginTop: 8 }}>
                 {lembretesCompact.today.map((t) => (
                   <li key={t.id} className="list-item" style={{ padding: "8px 10px" }}>
-                    <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    <span
+                      style={{
+                        minWidth: 0,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
                       {t.titulo}{" "}
                       <span className="muted small" style={{ fontWeight: 600 }}>
                         • {t.tipo === "recorrente" ? "recorrente" : "avulso"}
@@ -741,8 +761,7 @@ export default function FinancasPage() {
             {/* próximos (bem compacto) */}
             {lembretesCompact.upcoming.length > 0 && (
               <div className="muted small" style={{ marginTop: 8, lineHeight: 1.35 }}>
-                Próximos:
-                {" "}
+                Próximos:{" "}
                 {lembretesCompact.upcoming.slice(0, 3).map((u, idx) => (
                   <span key={u.id}>
                     <b>{fmtShortBR(u.when)}</b> {fmtTimeHHmm(u.when)} — {u.titulo}
