@@ -193,10 +193,28 @@ function fmtTimeHHmm(d) {
   }
 }
 
+/* ✅ ADICIONADO: navegação sem depender de react-router */
+function safeNavigateTo(path) {
+  try {
+    const p = String(path || "/");
+    // hash router?
+    if (window.location.hash && window.location.hash.startsWith("#/")) {
+      window.location.hash = "#" + (p.startsWith("/") ? p : "/" + p);
+      return;
+    }
+    // browser router
+    window.history.pushState({}, "", p.startsWith("/") ? p : "/" + p);
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  } catch {
+    try {
+      window.location.href = path;
+    } catch {}
+  }
+}
+
 /* ---------------------------------------------------------------------------------------- */
 
 export default function FinancasPage() {
-  // ✅ importante: irParaMesAtual agora usa o “mês financeiro” (ajustado no App.jsx)
   const {
     transacoes,
     profile,
@@ -204,11 +222,10 @@ export default function FinancasPage() {
     mudarMesReferencia,
     irParaMesAtual,
 
-    // ✅ ADICIONADO: puxar lembretes do mesmo contexto do app
+    // ✅ puxar lembretes do contexto do app
     lembretes,
   } = useFinance();
 
-  // ✅ modal ao clicar em "Gasto por categoria"
   const [modalCategorias, setModalCategorias] = useState(false);
 
   const salariosPorMes = profile?.salariosPorMes || {};
@@ -224,16 +241,12 @@ export default function FinancasPage() {
       let despesasTransacoes = 0;
       let gastosCartao = 0;
 
-      // ✅ categorias
       let categorias = { essencial: 0, lazer: 0, burrice: 0, investido: 0 };
       const semanas = [0, 0, 0, 0];
 
       const chaveMes = monthKey(ano, mes0);
 
-      const gastosFixosPerfil = (Array.isArray(profile?.gastosFixos)
-        ? profile.gastosFixos
-        : []
-      )
+      const gastosFixosPerfil = (Array.isArray(profile?.gastosFixos) ? profile.gastosFixos : [])
         .filter((g) => g.ativo !== false)
         .filter(
           (g) =>
@@ -269,17 +282,14 @@ export default function FinancasPage() {
             if (cat === "burrice") categorias.burrice += valor;
             if (cat === "investido") categorias.investido += valor;
 
-            const dia = dt.getDate(); // 1..31
-            const semanaIndex = Math.min(3, Math.floor((dia - 1) / 7)); // 0..3
+            const dia = dt.getDate();
+            const semanaIndex = Math.min(3, Math.floor((dia - 1) / 7));
             semanas[semanaIndex] += valor;
           }
         }
       });
 
-      const totalGastosFixos = gastosFixosPerfil.reduce(
-        (acc, g) => acc + Number(g.valor || 0),
-        0
-      );
+      const totalGastosFixos = gastosFixosPerfil.reduce((acc, g) => acc + Number(g.valor || 0), 0);
 
       const despesas = despesasTransacoes + totalGastosFixos;
 
@@ -295,7 +305,6 @@ export default function FinancasPage() {
 
       const saldo = receitas - despesas;
 
-      // Top 5
       const mapa = new Map();
       transacoes.forEach((t) => {
         const dt = new Date(t.dataHora);
@@ -424,7 +433,6 @@ export default function FinancasPage() {
     "Dezembro",
   ][mesReferencia.mes];
 
-  // ✅ dados do modal de categorias (organiza sozinho)
   const detalhesCategorias = useMemo(() => {
     const mes0 = mesReferencia.mes;
     const ano = mesReferencia.ano;
@@ -513,9 +521,8 @@ export default function FinancasPage() {
     };
   }, [transacoes, mesReferencia, resumoAtual.gastosFixos]);
 
-  /* -------------------- ✅ ADICIONADO: dados compactos de lembretes para o card principal -------------------- */
+  /* -------------------- ✅ lembretes compactos -------------------- */
 
-  // fallback (se por algum motivo não vier do contexto, tenta pegar do localStorage antigo)
   const [lembretesFallback, setLembretesFallback] = useState([]);
   useEffect(() => {
     try {
@@ -535,7 +542,6 @@ export default function FinancasPage() {
     const from = startOfDay(now);
     const to = endOfDay(now);
 
-    // transforma tudo em “eventos” comparáveis
     const events = list
       .map((it) => {
         if (!it) return null;
@@ -544,27 +550,14 @@ export default function FinancasPage() {
           if (it.done) return null;
           const dt = parseLocalDateTime(it.quando);
           if (!dt || Number.isNaN(dt.getTime())) return null;
-          return {
-            id: it.id,
-            tipo: "avulso",
-            titulo: it.titulo || "Sem título",
-            when: dt,
-            whenISO: dt.toISOString(),
-          };
+          return { id: it.id, tipo: "avulso", titulo: it.titulo || "Sem título", when: dt };
         }
 
         if (it.tipo === "recorrente") {
           if (it.enabled === false) return null;
           const dt = new Date(it.nextDueISO || "");
           if (!dt || Number.isNaN(dt.getTime())) return null;
-          return {
-            id: it.id,
-            tipo: "recorrente",
-            titulo: it.titulo || "Sem título",
-            when: dt,
-            whenISO: dt.toISOString(),
-            scheduleType: it.scheduleType || "intervalo",
-          };
+          return { id: it.id, tipo: "recorrente", titulo: it.titulo || "Sem título", when: dt };
         }
 
         return null;
@@ -572,35 +565,20 @@ export default function FinancasPage() {
       .filter(Boolean)
       .sort((a, b) => a.when.getTime() - b.when.getTime());
 
-    const today = events.filter(
-      (e) => e.when.getTime() >= from.getTime() && e.when.getTime() <= to.getTime()
-    );
-
+    const today = events.filter((e) => e.when.getTime() >= from.getTime() && e.when.getTime() <= to.getTime());
     const upcoming = events.filter((e) => e.when.getTime() > to.getTime()).slice(0, 6);
 
-    // “mini calendário” 7 dias (hoje + 6)
     const days = Array.from({ length: 7 }).map((_, idx) => {
       const d = addDays(from, idx);
       const key = toLocalDateKey(d);
-
       let count = 0;
       for (const ev of events) {
         if (toLocalDateKey(ev.when) === key) count++;
       }
-
-      return {
-        key,
-        date: d,
-        count,
-      };
+      return { key, date: d, count };
     });
 
-    return {
-      today: today.slice(0, 3), // compacto (máx 3)
-      todayCount: today.length,
-      upcoming,
-      days,
-    };
+    return { today: today.slice(0, 3), todayCount: today.length, upcoming, days };
   }, [lembretesList]);
 
   /* ----------------------------------------------------------------------------------------------------------- */
@@ -632,24 +610,7 @@ export default function FinancasPage() {
 
       {/* BLOCO PRINCIPAL */}
       <div className="card resumo-card">
-        <div className="resumo-top">
-          {/* ✅ aqui fica só o pill do pagamento (removeu "Salário fixo" + "Defina na aba Perfil") */}
-          <div className="pill" style={{ marginLeft: "auto" }}>
-            {diaPagamento ? (
-              <>
-                <span>Dia {diaPagamento}</span>
-                {proximoPag && (
-                  <span className="pill-sub">Próx. em {proximoPag.diasRestantes} dia(s)</span>
-                )}
-              </>
-            ) : (
-              <span>Sem dia definido</span>
-            )}
-          </div>
-        </div>
-
         <div className="resumo-footer">
-          {/* ✅ removeu a frase "Defina sua renda..." */}
           {resultadoSalario !== null && (
             <span
               className={
@@ -662,27 +623,81 @@ export default function FinancasPage() {
           )}
         </div>
 
+        {/* ✅ AQUI: pill do Dia/Próx na FRENTE do pendente (pra economizar espaço) */}
         {pendenteAnterior > 0 && (
-          <div style={{ marginTop: 10 }}>
-            <span className="badge badge-pill badge-negative">
-              Pendente do mês anterior: {formatCurrency(pendenteAnterior)}
-            </span>
+          <div
+            style={{
+              marginTop: 10,
+              display: "flex",
+              gap: 8,
+              alignItems: "center",
+              justifyContent: "space-between",
+              flexWrap: "wrap",
+            }}
+          >
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <span className="badge badge-pill badge-negative">
+                Pendente do mês anterior: {formatCurrency(pendenteAnterior)}
+              </span>
 
-            {/* ✅ removeu: "Esse valor foi carregado automaticamente..." */}
+              {diaPagamento ? (
+                <span className="pill" style={{ padding: "8px 10px" }}>
+                  <span>Dia {diaPagamento}</span>
+                  {proximoPag && (
+                    <span className="pill-sub" style={{ marginLeft: 8 }}>
+                      Próx. em {proximoPag.diasRestantes} dia(s)
+                    </span>
+                  )}
+                </span>
+              ) : null}
+            </div>
           </div>
         )}
 
-        {/* ✅ ADICIONADO: Lembretes do dia + mini calendário (compacto, sem ocupar muito espaço) */}
+        {/* Se NÃO tiver pendente, o pill aparece normal no topo (mantém funcionando) */}
+        {pendenteAnterior <= 0 && (
+          <div style={{ marginTop: 10, display: "flex", justifyContent: "flex-end" }}>
+            <div className="pill">
+              {diaPagamento ? (
+                <>
+                  <span>Dia {diaPagamento}</span>
+                  {proximoPag && (
+                    <span className="pill-sub">Próx. em {proximoPag.diasRestantes} dia(s)</span>
+                  )}
+                </>
+              ) : (
+                <span>Sem dia definido</span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ✅ Lembretes: clicar leva para /lembretes */}
         <div style={{ marginTop: 12 }}>
           <div
             className="card"
+            role="button"
+            tabIndex={0}
+            onClick={() => safeNavigateTo("/lembretes")}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") safeNavigateTo("/lembretes");
+            }}
             style={{
               padding: 10,
               background: "rgba(255,255,255,.03)",
               border: "1px solid rgba(255,255,255,.08)",
+              cursor: "pointer",
             }}
+            title="Clique para abrir Lembretes"
           >
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                gap: 10,
+                alignItems: "center",
+              }}
+            >
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontWeight: 800, fontSize: 14 }}>📌 Lembretes</div>
                 <div className="muted small" style={{ marginTop: 2 }}>
@@ -758,7 +773,7 @@ export default function FinancasPage() {
               </ul>
             )}
 
-            {/* próximos (bem compacto) */}
+            {/* próximos (compacto) */}
             {lembretesCompact.upcoming.length > 0 && (
               <div className="muted small" style={{ marginTop: 8, lineHeight: 1.35 }}>
                 Próximos:{" "}
@@ -865,7 +880,7 @@ export default function FinancasPage() {
           className="card"
           onClick={() => setModalCategorias(true)}
           style={{ cursor: "pointer" }}
-          title="Clique para ver detalhes"
+          title="Clique para abrir detalhes"
         >
           <h3>Gasto por categoria</h3>
 
@@ -898,20 +913,43 @@ export default function FinancasPage() {
           </div>
         </div>
 
-        <div className="card">
+        {/* ✅ também abre o mesmo modal, e tira a “bolota/barra azul” grande */}
+        <div
+          className="card"
+          onClick={() => setModalCategorias(true)}
+          style={{ cursor: "pointer" }}
+          title="Clique para abrir detalhes"
+        >
           <h3>Gastos por semana</h3>
 
-          {/* ✅ 2x2 (Sem 1 e 2 em cima / 3 e 4 em baixo) */}
           <div className="weeks-grid">
             {resumoAtual.semanas.map((v, i) => {
-              const height = (v / resumoAtual.maxSemana) * 100;
+              const pct =
+                resumoAtual.maxSemana > 0 ? Math.max(2, (v / resumoAtual.maxSemana) * 100) : 2;
 
               return (
                 <div className="week-cell" key={i}>
                   <div className="muted small week-value">{formatCurrency(v)}</div>
 
-                  <div className="week-bar-wrap">
-                    <div className="bar week-bar" style={{ height: `${height || 2}%` }} />
+                  {/* ✅ novo: barrinha horizontal compacta (não ocupa altura) */}
+                  <div
+                    style={{
+                      width: "100%",
+                      height: 6,
+                      borderRadius: 999,
+                      background: "rgba(255,255,255,.08)",
+                      overflow: "hidden",
+                      marginTop: 6,
+                      marginBottom: 6,
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: `${pct}%`,
+                        height: "100%",
+                        background: "rgba(143,163,255,.85)",
+                      }}
+                    />
                   </div>
 
                   <span className="bar-label">Sem {i + 1}</span>
@@ -935,6 +973,72 @@ export default function FinancasPage() {
               {nomeMes} / {mesReferencia.ano}
             </p>
 
+            {/* ✅ NOVO: lista grande de categorias (não remove as funções antigas) */}
+            <div className="card" style={{ marginTop: 10 }}>
+              <h4 style={{ marginBottom: 8 }}>CATEGORIAS DE GASTOS</h4>
+
+              <div className="muted small" style={{ lineHeight: 1.45 }}>
+                <b>ESSENCIAIS</b>
+                <br />• Aluguel / Financiamento
+                <br />• Água
+                <br />• Luz
+                <br />• Internet
+                <br />• Gás
+                <br />• Mercado
+                <br />• Transporte
+                <br />• Farmácia
+                <br />• Plano de saúde
+                <br />
+                <br />
+                <b>FINANCEIRO</b>
+                <br />• Cartão de crédito
+                <br />• Parcelamentos
+                <br />• Empréstimos
+                <br />• Reserva de emergência
+                <br />• Investimentos
+                <br />• Taxas bancárias
+                <br />
+                <br />
+                <b>EDUCAÇÃO &amp; DESENVOLVIMENTO</b>
+                <br />• Escola / Faculdade
+                <br />• Cursos
+                <br />• Livros
+                <br />• Material escolar
+                <br />• Concursos / ENEM
+                <br />
+                <br />
+                <b>LAZER &amp; QUALIDADE DE VIDA</b>
+                <br />• Restaurantes
+                <br />• Delivery
+                <br />• Cinema / Streaming
+                <br />• Festa
+                <br />• Academia
+                <br />• Passeios
+                <br />
+                <br />
+                <b>PESSOAL</b>
+                <br />• Roupas
+                <br />• Salão
+                <br />• Cosméticos
+                <br />• Cuidados pessoais
+                <br />
+                <br />
+                <b>CASA</b>
+                <br />• Manutenção
+                <br />• Produtos de limpeza
+                <br />• Móveis
+                <br />• Utensílios
+                <br />
+                <br />
+                <b>IMPREVISTOS</b>
+                <br />• Conserto de carro
+                <br />• Emergência médica
+                <br />• Multas
+                <br />• Conserto de celular
+              </div>
+            </div>
+
+            {/* ✅ mantém as funções/partes antigas */}
             <div className="card" style={{ marginTop: 10 }}>
               <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
                 <span>
