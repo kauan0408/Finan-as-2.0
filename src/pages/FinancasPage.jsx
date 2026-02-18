@@ -197,12 +197,10 @@ function fmtTimeHHmm(d) {
 function safeNavigateTo(path) {
   try {
     const p = String(path || "/");
-    // hash router?
     if (window.location.hash && window.location.hash.startsWith("#/")) {
       window.location.hash = "#" + (p.startsWith("/") ? p : "/" + p);
       return;
     }
-    // browser router
     window.history.pushState({}, "", p.startsWith("/") ? p : "/" + p);
     window.dispatchEvent(new PopStateEvent("popstate"));
   } catch {
@@ -210,6 +208,222 @@ function safeNavigateTo(path) {
       window.location.href = path;
     } catch {}
   }
+}
+
+/* -------------------- ✅ ADICIONADO: classificação por CLASSE (7 grupos) -------------------- */
+
+const CLASSES_GASTOS = [
+  { key: "essenciais", label: "ESSENCIAIS" },
+  { key: "financeiro", label: "FINANCEIRO" },
+  { key: "educacao", label: "EDUCAÇÃO & DESENVOLVIMENTO" },
+  { key: "lazer", label: "LAZER & QUALIDADE DE VIDA" },
+  { key: "pessoal", label: "PESSOAL" },
+  { key: "casa", label: "CASA" },
+  { key: "imprevistos", label: "IMPREVISTOS" },
+];
+
+// palavras-chave para “puxar tudo que eu gastei e dividir nas classes”
+// (usa a descrição do gasto; se não bater, cai em “Essenciais” como padrão)
+function classificarClassePorDescricao(descricao) {
+  const d = normalizeText(descricao);
+
+  const hit = (arr) => arr.some((k) => d.includes(normalizeText(k)));
+
+  // FINANCEIRO
+  if (
+    hit([
+      "cartao",
+      "cartão",
+      "credito",
+      "crédito",
+      "fatura",
+      "parcel",
+      "parcela",
+      "emprest",
+      "emprést",
+      "juros",
+      "taxa",
+      "tarifa",
+      "banco",
+      "nubank",
+      "itau",
+      "itaú",
+      "caixa",
+      "bradesco",
+      "santander",
+      "reserva",
+      "emergencia",
+      "emergência",
+      "investimento",
+      "investimentos",
+      "cdb",
+      "tesouro",
+      "poupanca",
+      "poupança",
+      "pix tarifa",
+    ])
+  ) {
+    return "financeiro";
+  }
+
+  // EDUCAÇÃO
+  if (
+    hit([
+      "escola",
+      "faculdade",
+      "curso",
+      "cursos",
+      "livro",
+      "livros",
+      "material escolar",
+      "apostila",
+      "enem",
+      "concurso",
+      "inscricao",
+      "inscrição",
+      "mensalidade",
+      "educacao",
+      "educação",
+      "prova",
+      "simulado",
+    ])
+  ) {
+    return "educacao";
+  }
+
+  // LAZER
+  if (
+    hit([
+      "restaurante",
+      "delivery",
+      "cinema",
+      "streaming",
+      "netflix",
+      "spotify",
+      "prime",
+      "disney",
+      "festa",
+      "academia",
+      "passeio",
+      "bar",
+      "bebida",
+      "churrasco",
+      "viagem",
+      "lazer",
+      "ifood",
+      "i food",
+      "lanche",
+      "hamburguer",
+      "hambúrguer",
+      "pizza",
+      "sorvete",
+    ])
+  ) {
+    return "lazer";
+  }
+
+  // PESSOAL
+  if (
+    hit([
+      "roupa",
+      "roupas",
+      "salao",
+      "salão",
+      "barbearia",
+      "cabelo",
+      "cosmetico",
+      "cosmético",
+      "cosmeticos",
+      "cosméticos",
+      "cuidados",
+      "higiene",
+      "perfume",
+      "maquiagem",
+      "pessoal",
+    ])
+  ) {
+    return "pessoal";
+  }
+
+  // CASA
+  if (
+    hit([
+      "manutencao",
+      "manutenção",
+      "limpeza",
+      "produto de limpeza",
+      "produtos de limpeza",
+      "moveis",
+      "móveis",
+      "utensilio",
+      "utensílio",
+      "utensilios",
+      "utensílios",
+      "casa",
+      "reparo",
+      "conserto da casa",
+    ])
+  ) {
+    return "casa";
+  }
+
+  // IMPREVISTOS
+  if (
+    hit([
+      "conserto",
+      "multa",
+      "emergencia",
+      "emergência",
+      "hospital",
+      "medico",
+      "médico",
+      "clinica",
+      "clínica",
+      "urgencia",
+      "urgência",
+      "carro",
+      "celular",
+      "quebra",
+      "perda",
+      "imprevisto",
+    ])
+  ) {
+    return "imprevistos";
+  }
+
+  // ESSENCIAIS (inclui contas do dia a dia)
+  if (
+    hit([
+      "aluguel",
+      "financiamento",
+      "agua",
+      "água",
+      "luz",
+      "energia",
+      "internet",
+      "gas",
+      "gás",
+      "mercado",
+      "supermercado",
+      "transporte",
+      "onibus",
+      "ônibus",
+      "passagem",
+      "farmacia",
+      "farmácia",
+      "plano de saude",
+      "plano de saúde",
+      "saude",
+      "saúde",
+      "combustivel",
+      "combustível",
+    ])
+  ) {
+    return "essenciais";
+  }
+
+  // padrão
+  return "essenciais";
 }
 
 /* ---------------------------------------------------------------------------------------- */
@@ -509,8 +723,39 @@ export default function FinancasPage() {
       else totalPorCategoria.outras += t.valor;
     });
 
+    // ✅ NOVO: agrupar TUDO por CLASSE (7 grupos), puxando todos os gastos do mês
+    const porClasse = new Map(); // key -> { label, total, itemsMap }
+    CLASSES_GASTOS.forEach((c) => {
+      porClasse.set(c.key, { key: c.key, label: c.label, total: 0, itemsMap: new Map() });
+    });
+
+    tudo.forEach((t) => {
+      const classeKey = classificarClassePorDescricao(t.descricao);
+      const bucket = porClasse.get(classeKey) || porClasse.get("essenciais");
+
+      const v = Number(t.valor || 0);
+      bucket.total += v;
+
+      // agrupa itens iguais (descrição) com contagem
+      const k = normalizarNome(t.descricao);
+      const cur = bucket.itemsMap.get(k) || { descricao: t.descricao, total: 0, count: 0 };
+      cur.total += v;
+      cur.count += 1;
+
+      if ((!cur.descricao || cur.descricao === "Sem descrição") && t.descricao) cur.descricao = t.descricao;
+      bucket.itemsMap.set(k, cur);
+    });
+
+    const porClasseList = Array.from(porClasse.values()).map((b) => {
+      const items = Array.from(b.itemsMap.values()).sort((a, b2) => b2.total - a.total);
+      return { ...b, items };
+    });
+
+    // total geral do mês (já existe em totalMes, mas deixo explícito)
+    const totalMes = sum(tudo);
+
     return {
-      totalMes: sum(tudo),
+      totalMes,
       totalFood: sum(food),
       totalTransport: sum(transport),
       totalOther: sum(other),
@@ -518,6 +763,8 @@ export default function FinancasPage() {
       transportByDesc,
       foodPorCategoria,
       totalPorCategoria,
+      porClasseList,
+      tudoCount: tudo.length,
     };
   }, [transacoes, mesReferencia, resumoAtual.gastosFixos]);
 
@@ -623,7 +870,7 @@ export default function FinancasPage() {
           )}
         </div>
 
-        {/* ✅ AQUI: pill do Dia/Próx na FRENTE do pendente (pra economizar espaço) */}
+        {/* pill do Dia/Próx + pendente */}
         {pendenteAnterior > 0 && (
           <div
             style={{
@@ -654,7 +901,6 @@ export default function FinancasPage() {
           </div>
         )}
 
-        {/* Se NÃO tiver pendente, o pill aparece normal no topo (mantém funcionando) */}
         {pendenteAnterior <= 0 && (
           <div style={{ marginTop: 10, display: "flex", justifyContent: "flex-end" }}>
             <div className="pill">
@@ -672,7 +918,7 @@ export default function FinancasPage() {
           </div>
         )}
 
-        {/* ✅ Lembretes: clicar leva para /lembretes */}
+        {/* Lembretes */}
         <div style={{ marginTop: 12 }}>
           <div
             className="card"
@@ -706,7 +952,6 @@ export default function FinancasPage() {
                 </div>
               </div>
 
-              {/* mini calendário 7 dias */}
               <div style={{ display: "flex", gap: 6, alignItems: "flex-end", flexWrap: "nowrap" }}>
                 {lembretesCompact.days.map((d, idx) => {
                   const isToday = idx === 0;
@@ -743,7 +988,6 @@ export default function FinancasPage() {
               </div>
             </div>
 
-            {/* lista compacta do dia */}
             {lembretesCompact.today.length === 0 ? (
               <div className="muted small" style={{ marginTop: 8 }}>
                 Nada para hoje 🎉
@@ -773,7 +1017,6 @@ export default function FinancasPage() {
               </ul>
             )}
 
-            {/* próximos (compacto) */}
             {lembretesCompact.upcoming.length > 0 && (
               <div className="muted small" style={{ marginTop: 8, lineHeight: 1.35 }}>
                 Próximos:{" "}
@@ -913,7 +1156,6 @@ export default function FinancasPage() {
           </div>
         </div>
 
-        {/* ✅ também abre o mesmo modal, e tira a “bolota/barra azul” grande */}
         <div
           className="card"
           onClick={() => setModalCategorias(true)}
@@ -931,7 +1173,6 @@ export default function FinancasPage() {
                 <div className="week-cell" key={i}>
                   <div className="muted small week-value">{formatCurrency(v)}</div>
 
-                  {/* ✅ novo: barrinha horizontal compacta (não ocupa altura) */}
                   <div
                     style={{
                       width: "100%",
@@ -973,72 +1214,7 @@ export default function FinancasPage() {
               {nomeMes} / {mesReferencia.ano}
             </p>
 
-            {/* ✅ NOVO: lista grande de categorias (não remove as funções antigas) */}
-            <div className="card" style={{ marginTop: 10 }}>
-              <h4 style={{ marginBottom: 8 }}>CATEGORIAS DE GASTOS</h4>
-
-              <div className="muted small" style={{ lineHeight: 1.45 }}>
-                <b>ESSENCIAIS</b>
-                <br />• Aluguel / Financiamento
-                <br />• Água
-                <br />• Luz
-                <br />• Internet
-                <br />• Gás
-                <br />• Mercado
-                <br />• Transporte
-                <br />• Farmácia
-                <br />• Plano de saúde
-                <br />
-                <br />
-                <b>FINANCEIRO</b>
-                <br />• Cartão de crédito
-                <br />• Parcelamentos
-                <br />• Empréstimos
-                <br />• Reserva de emergência
-                <br />• Investimentos
-                <br />• Taxas bancárias
-                <br />
-                <br />
-                <b>EDUCAÇÃO &amp; DESENVOLVIMENTO</b>
-                <br />• Escola / Faculdade
-                <br />• Cursos
-                <br />• Livros
-                <br />• Material escolar
-                <br />• Concursos / ENEM
-                <br />
-                <br />
-                <b>LAZER &amp; QUALIDADE DE VIDA</b>
-                <br />• Restaurantes
-                <br />• Delivery
-                <br />• Cinema / Streaming
-                <br />• Festa
-                <br />• Academia
-                <br />• Passeios
-                <br />
-                <br />
-                <b>PESSOAL</b>
-                <br />• Roupas
-                <br />• Salão
-                <br />• Cosméticos
-                <br />• Cuidados pessoais
-                <br />
-                <br />
-                <b>CASA</b>
-                <br />• Manutenção
-                <br />• Produtos de limpeza
-                <br />• Móveis
-                <br />• Utensílios
-                <br />
-                <br />
-                <b>IMPREVISTOS</b>
-                <br />• Conserto de carro
-                <br />• Emergência médica
-                <br />• Multas
-                <br />• Conserto de celular
-              </div>
-            </div>
-
-            {/* ✅ mantém as funções/partes antigas */}
+            {/* ✅ o que você pediu: total + total por categoria (sempre aparece) */}
             <div className="card" style={{ marginTop: 10 }}>
               <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
                 <span>
@@ -1053,6 +1229,91 @@ export default function FinancasPage() {
               </p>
             </div>
 
+            <div className="card" style={{ marginTop: 10 }}>
+              <h4 style={{ marginBottom: 8 }}>📌 Total por categoria</h4>
+              <ul className="list">
+                <li className="list-item">
+                  <span>Essencial</span>
+                  <span>{formatCurrency(detalhesCategorias.totalPorCategoria.essencial)}</span>
+                </li>
+                <li className="list-item">
+                  <span>Lazer</span>
+                  <span>{formatCurrency(detalhesCategorias.totalPorCategoria.lazer)}</span>
+                </li>
+                <li className="list-item">
+                  <span>Burrice</span>
+                  <span>{formatCurrency(detalhesCategorias.totalPorCategoria.burrice)}</span>
+                </li>
+                <li className="list-item">
+                  <span>Investido</span>
+                  <span>{formatCurrency(detalhesCategorias.totalPorCategoria.investido)}</span>
+                </li>
+                {detalhesCategorias.totalPorCategoria.outras > 0 && (
+                  <li className="list-item">
+                    <span>Outras</span>
+                    <span>{formatCurrency(detalhesCategorias.totalPorCategoria.outras)}</span>
+                  </li>
+                )}
+              </ul>
+            </div>
+
+            {/* ✅ NOVO: puxar TUDO e dividir nas 7 classes */}
+            <div className="card" style={{ marginTop: 10 }}>
+              <h4 style={{ marginBottom: 8 }}>CATEGORIAS DE GASTOS (por classe)</h4>
+              <p className="muted small" style={{ marginTop: 0 }}>
+                Abaixo o app pega <b>todas</b> as despesas do mês (histórico + fixos) e separa nas classes.
+              </p>
+
+              <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
+                {detalhesCategorias.porClasseList.map((c) => {
+                  const has = (c.items || []).length > 0 && Number(c.total || 0) > 0;
+                  return (
+                    <div
+                      key={c.key}
+                      style={{
+                        border: "1px solid rgba(255,255,255,.08)",
+                        background: "rgba(255,255,255,.02)",
+                        borderRadius: 14,
+                        padding: 12,
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                        <div style={{ fontWeight: 900 }}>{c.label}</div>
+                        <div style={{ fontWeight: 900 }}>{formatCurrency(c.total)}</div>
+                      </div>
+
+                      {!has ? (
+                        <div className="muted small" style={{ marginTop: 8 }}>
+                          Sem itens neste mês.
+                        </div>
+                      ) : (
+                        <ul className="list" style={{ marginTop: 8 }}>
+                          {c.items.slice(0, 12).map((it, idx) => (
+                            <li key={idx} className="list-item" style={{ padding: "8px 10px" }}>
+                              <span style={{ minWidth: 0, overflowWrap: "anywhere" }}>
+                                {it.descricao}
+                                {it.count > 1 ? (
+                                  <span className="muted small"> · {it.count}x</span>
+                                ) : null}
+                              </span>
+                              <span style={{ whiteSpace: "nowrap" }}>{formatCurrency(it.total)}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+
+                      {has && (c.items || []).length > 12 && (
+                        <div className="muted small" style={{ marginTop: 8 }}>
+                          Mostrando 12 itens. (Total de itens na classe: {c.items.length})
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* mantém comida/transporte do seu modal atual */}
             <div className="card" style={{ marginTop: 10 }}>
               <h4 style={{ marginBottom: 8 }}>🍔 Comida</h4>
 
@@ -1139,34 +1400,6 @@ export default function FinancasPage() {
                   ))}
                 </ul>
               )}
-            </div>
-
-            <div className="card" style={{ marginTop: 10 }}>
-              <h4 style={{ marginBottom: 8 }}>📌 Total por categoria</h4>
-              <ul className="list">
-                <li className="list-item">
-                  <span>Essencial</span>
-                  <span>{formatCurrency(detalhesCategorias.totalPorCategoria.essencial)}</span>
-                </li>
-                <li className="list-item">
-                  <span>Lazer</span>
-                  <span>{formatCurrency(detalhesCategorias.totalPorCategoria.lazer)}</span>
-                </li>
-                <li className="list-item">
-                  <span>Burrice</span>
-                  <span>{formatCurrency(detalhesCategorias.totalPorCategoria.burrice)}</span>
-                </li>
-                <li className="list-item">
-                  <span>Investido</span>
-                  <span>{formatCurrency(detalhesCategorias.totalPorCategoria.investido)}</span>
-                </li>
-                {detalhesCategorias.totalPorCategoria.outras > 0 && (
-                  <li className="list-item">
-                    <span>Outras</span>
-                    <span>{formatCurrency(detalhesCategorias.totalPorCategoria.outras)}</span>
-                  </li>
-                )}
-              </ul>
             </div>
 
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}>
