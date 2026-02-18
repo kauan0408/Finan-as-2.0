@@ -25,7 +25,7 @@ function FeedbackBox({ text, onClose }) {
         alignItems: "center",
       }}
     >
-      <span>{text}</span>
+      <span style={{ wordBreak: "break-word" }}>{text}</span>
 
       <button
         type="button"
@@ -480,7 +480,6 @@ export default function ReservaPage() {
     color: "rgba(255,255,255,.98)",
   };
 
-  // Quadrinho dos botões
   const actionPanelStyle = {
     marginTop: 10,
     padding: 12,
@@ -489,7 +488,6 @@ export default function ReservaPage() {
     background: "rgba(255,255,255,.03)",
   };
 
-  // ✅ agora são 3 botões (sem Meta e Novo local)
   const actionGridStyle = {
     display: "grid",
     gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
@@ -509,13 +507,105 @@ export default function ReservaPage() {
     whiteSpace: "nowrap",
   };
 
+  // ✅ estilos novos para “Locais” (arrumadinho + não estoura)
+  const localCard = {
+    padding: 14,
+    borderRadius: 16,
+    border: "1px solid rgba(255,255,255,.08)",
+    background: "rgba(255,255,255,.03)",
+    display: "grid",
+    gap: 12,
+    width: "100%",
+    boxSizing: "border-box",
+  };
+
+  const localTop = {
+    display: "grid",
+    gridTemplateColumns: "1fr auto",
+    gap: 10,
+    alignItems: "start",
+    width: "100%",
+  };
+
+  const localTitle = {
+    display: "grid",
+    gap: 4,
+    minWidth: 0,
+  };
+
+  const localName = {
+    fontSize: 16,
+    fontWeight: 900,
+    lineHeight: 1.15,
+    overflowWrap: "anywhere",
+  };
+
+  const localInfoLine = {
+    fontSize: 12.5,
+    opacity: 0.85,
+    overflowWrap: "anywhere",
+  };
+
+  const localActions = {
+    display: "grid",
+    gridAutoFlow: "column",
+    gap: 8,
+    justifyContent: "end",
+    alignItems: "center",
+    width: "max-content",
+  };
+
+  const inputsGrid = {
+    display: "grid",
+    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+    gap: 10,
+    width: "100%",
+  };
+
+  const inputWrap = {
+    display: "grid",
+    gap: 6,
+    minWidth: 0,
+  };
+
+  const labelSmall = { fontSize: 12, opacity: 0.85 };
+
+  const inputStyle = {
+    width: "100%",
+    boxSizing: "border-box",
+  };
+
+  const progressRow = {
+    display: "grid",
+    gridTemplateColumns: "1fr auto",
+    alignItems: "center",
+    gap: 10,
+    width: "100%",
+  };
+
+  const progressBarOuter = {
+    height: 10,
+    borderRadius: 999,
+    background: "rgba(255,255,255,.08)",
+    overflow: "hidden",
+    border: "1px solid rgba(255,255,255,.06)",
+  };
+
+  const progressLabel = {
+    fontSize: 12.5,
+    fontWeight: 900,
+    opacity: 0.9,
+    minWidth: 42,
+    textAlign: "right",
+  };
+
   return (
     <div className="page">
       <h2 className="page-title" style={{ marginBottom: 8 }}>
         Reserva
       </h2>
 
-      {/* ✅ AÇÕES RÁPIDAS (SEM META E SEM NOVO LOCAL) */}
+      {/* AÇÕES RÁPIDAS */}
       <div className="card" style={actionPanelStyle}>
         <div className="muted small" style={{ marginBottom: 10 }}>
           Ações rápidas
@@ -560,7 +650,7 @@ export default function ReservaPage() {
 
       <FeedbackBox text={mensagem} onClose={() => setMensagem("")} />
 
-      {/* META (continua existindo, só não está nos botões de cima) */}
+      {/* META */}
       {metaOpen ? (
         <div className="modal-overlay">
           <div className="modal-card">
@@ -718,7 +808,7 @@ export default function ReservaPage() {
         </div>
       ) : null}
 
-      {/* NOVO LOCAL (continua existindo, só não está nos botões de cima) */}
+      {/* NOVO LOCAL */}
       {novoLocalOpen ? (
         <div className="modal-overlay">
           <div className="modal-card">
@@ -848,7 +938,6 @@ export default function ReservaPage() {
             </p>
           </div>
 
-          {/* Mantém acesso à meta aqui (opcional) */}
           <button type="button" className="toggle-btn" onClick={() => setMetaOpen(true)} title="Editar meta">
             🎯 Ajustar
           </button>
@@ -905,12 +994,11 @@ export default function ReservaPage() {
         </div>
       </div>
 
-      {/* LOCAIS */}
-      <div className="card mt">
+      {/* ✅ LOCAIS (arrumado + responsivo) */}
+      <div className="card mt" style={{ overflow: "hidden" }}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
           <h3 style={{ margin: 0 }}>Locais</h3>
 
-          {/* Mantém acesso a novo local aqui (opcional) */}
           <button type="button" className="toggle-btn" onClick={() => setNovoLocalOpen(true)} title="Novo local">
             📌 Adicionar
           </button>
@@ -923,7 +1011,7 @@ export default function ReservaPage() {
         {locaisAtivos.length === 0 ? (
           <p className="muted small">Adicione um local para começar.</p>
         ) : (
-          <ul className="list" style={{ marginTop: 10 }}>
+          <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
             {locaisAtivos.map((l) => {
               const investido = toNum(l.valor);
               const meta = toNum(l.meta);
@@ -931,40 +1019,36 @@ export default function ReservaPage() {
               const perc = meta > 0 ? clamp((investido / meta) * 100, 0, 100) : 0;
 
               return (
-                <li
-                  key={l.id}
-                  className="list-item"
-                  style={{
-                    flexDirection: "column",
-                    gap: 10,
-                    padding: 14,
-                    borderRadius: 14,
-                  }}
-                >
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10, width: "100%" }}>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                      <strong style={{ fontSize: 16 }}>{l.nome}</strong>
-                      <span className="muted small">
-                        Investido: <strong>{formatCurrency(investido)}</strong> · Falta:{" "}
-                        <strong>{formatCurrency(falta)}</strong>
-                      </span>
+                <div key={l.id} style={localCard}>
+                  {/* topo */}
+                  <div style={localTop}>
+                    <div style={localTitle}>
+                      <div style={localName}>{l.nome}</div>
+                      <div style={localInfoLine} className="muted">
+                        Investido: <strong>{formatCurrency(investido)}</strong>{" "}
+                        <span style={{ opacity: 0.7 }}>·</span>{" "}
+                        Falta: <strong>{formatCurrency(falta)}</strong>
+                      </div>
                     </div>
 
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                      <button type="button" className="toggle-btn" onClick={() => marcarConcluido(l.id)}>
+                    <div style={localActions}>
+                      <button type="button" className="toggle-btn" onClick={() => marcarConcluido(l.id)} style={{ width: "auto" }}>
                         ✅ Concluir
                       </button>
 
-                      <button type="button" className="toggle-btn" onClick={() => abrirApagarLocal(l.id)}>
+                      <button type="button" className="toggle-btn" onClick={() => abrirApagarLocal(l.id)} style={{ width: "auto" }}>
                         🗑️ Apagar
                       </button>
                     </div>
                   </div>
 
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, width: "100%" }}>
-                    <div className="field" style={{ margin: 0 }}>
-                      <label>Meta (R$)</label>
+                  {/* inputs */}
+                  <div style={inputsGrid}>
+                    <div style={inputWrap}>
+                      <span style={labelSmall} className="muted">Meta (R$)</span>
                       <input
+                        style={inputStyle}
+                        className="input"
                         type="number"
                         step="0.01"
                         value={l.meta}
@@ -972,9 +1056,11 @@ export default function ReservaPage() {
                       />
                     </div>
 
-                    <div className="field" style={{ margin: 0 }}>
-                      <label>Investido (R$)</label>
+                    <div style={inputWrap}>
+                      <span style={labelSmall} className="muted">Investido (R$)</span>
                       <input
+                        style={inputStyle}
+                        className="input"
                         type="number"
                         step="0.01"
                         value={l.valor}
@@ -983,57 +1069,66 @@ export default function ReservaPage() {
                     </div>
                   </div>
 
+                  {/* progresso */}
                   {meta > 0 ? (
-                    <div className="progress-container" style={{ width: "100%" }}>
-                      <div className="progress-bar">
-                        <div className="progress-fill" style={{ width: `${perc.toFixed(0)}%` }} />
+                    <div style={progressRow}>
+                      <div style={progressBarOuter}>
+                        <div
+                          style={{
+                            width: `${perc.toFixed(0)}%`,
+                            height: "100%",
+                            background: "rgba(59,130,246,.55)",
+                          }}
+                        />
                       </div>
-                      <span className="progress-label">{perc.toFixed(0)}%</span>
+                      <div style={progressLabel}>{perc.toFixed(0)}%</div>
                     </div>
                   ) : (
-                    <p className="muted small" style={{ width: "100%" }}>
+                    <p className="muted small" style={{ margin: 0 }}>
                       Dica: coloque uma meta para ver o progresso.
                     </p>
                   )}
-                </li>
+                </div>
               );
             })}
-          </ul>
+          </div>
         )}
 
+        {/* concluídos */}
         {locaisConcluidos.length > 0 ? (
           <div style={{ marginTop: 14 }}>
             <h4 style={{ marginBottom: 6 }}>Concluídos</h4>
             <p className="muted small">Serão removidos automaticamente após 7 dias.</p>
 
-            <ul className="list" style={{ marginTop: 8 }}>
+            <div style={{ display: "grid", gap: 10, marginTop: 8 }}>
               {locaisConcluidos.map((l) => {
                 const doneAt = l.doneAt ? new Date(l.doneAt) : null;
                 const dias = doneAt ? daysBetween(doneAt.getTime(), Date.now()) : 0;
                 const faltam = Math.max(0, 7 - dias);
 
                 return (
-                  <li key={l.id} className="list-item" style={{ justifyContent: "space-between", gap: 10 }}>
-                    <div>
-                      <strong>{l.nome}</strong>
-                      <p className="muted small" style={{ marginTop: 2 }}>
-                        Remove em ~{faltam} dia(s)
-                      </p>
-                    </div>
+                  <div key={l.id} style={localCard}>
+                    <div style={localTop}>
+                      <div style={localTitle}>
+                        <div style={localName}>{l.nome}</div>
+                        <div style={localInfoLine} className="muted">
+                          Remove em ~<strong>{faltam}</strong> dia(s)
+                        </div>
+                      </div>
 
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                      <button type="button" className="toggle-btn" onClick={() => marcarConcluido(l.id)}>
-                        ↩️ Reabrir
-                      </button>
-
-                      <button type="button" className="toggle-btn" onClick={() => abrirApagarLocal(l.id)}>
-                        🗑️ Apagar agora
-                      </button>
+                      <div style={localActions}>
+                        <button type="button" className="toggle-btn" onClick={() => marcarConcluido(l.id)} style={{ width: "auto" }}>
+                          ↩️ Reabrir
+                        </button>
+                        <button type="button" className="toggle-btn" onClick={() => abrirApagarLocal(l.id)} style={{ width: "auto" }}>
+                          🗑️ Apagar agora
+                        </button>
+                      </div>
                     </div>
-                  </li>
+                  </div>
                 );
               })}
-            </ul>
+            </div>
           </div>
         ) : null}
       </div>
@@ -1048,16 +1143,15 @@ export default function ReservaPage() {
           <ul className="list">
             {movimentos.map((m) => (
               <li key={m.id} className="list-item list-item-history">
-                <div>
+                <div style={{ minWidth: 0 }}>
                   <strong>{formatCurrency(m.valor)}</strong>
-
-                  <p className="small muted">
+                  <p className="small muted" style={{ overflowWrap: "anywhere" }}>
                     {nomeLocal(m.localId)} · {origemLabel(m.origem)}
                     {m.objetivo ? ` · ${m.objetivo}` : ""}
                   </p>
                 </div>
 
-                <div className="muted small">
+                <div className="muted small" style={{ textAlign: "right" }}>
                   {new Date(m.dataHora).toLocaleDateString("pt-BR")}{" "}
                   {new Date(m.dataHora).toLocaleTimeString("pt-BR", {
                     hour: "2-digit",
