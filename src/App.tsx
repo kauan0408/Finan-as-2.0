@@ -17,6 +17,9 @@ import ReceitasPage from "./pages/ReceitasPage.jsx";
 // ✅ CASA
 import DivisaoCasaPage from "./pages/DivisaoCasaPage.jsx";
 
+// ✅ ESTUDOS (NOVA)
+import EstudosPage from "./pages/EstudosPage.jsx";
+
 // 🔐 Firebase (login Google + banco de dados)
 import { auth, loginComGoogle, logout, db } from "./firebase";
 import { onAuthStateChanged } from "firebase/auth";
@@ -209,6 +212,9 @@ const DEFAULT_LISTA = [];
 const DEFAULT_LEMBRETES = [];
 const DEFAULT_RECEITAS = [];
 
+// ✅ ESTUDOS (NOVO)
+const DEFAULT_ESTUDOS = [];
+
 // ✅ DEFAULT DA CASA (LOCAL APENAS)
 const DEFAULT_DIVISAO_CASA = {
   casaNome: "Gastos da Casa",
@@ -240,6 +246,9 @@ export default function App() {
   const [lista, setLista] = useState(DEFAULT_LISTA);
   const [lembretes, setLembretes] = useState(DEFAULT_LEMBRETES);
   const [receitas, setReceitas] = useState(DEFAULT_RECEITAS);
+
+  // ✅ ESTUDOS (NOVO)
+  const [estudos, setEstudos] = useState(DEFAULT_ESTUDOS);
 
   // ✅ CASA (LOCAL)
   const [divisaoCasa, setDivisaoCasa] = useState(DEFAULT_DIVISAO_CASA);
@@ -390,6 +399,10 @@ export default function App() {
   const itensMenuMais = useMemo(
     () => [
       { key: "financas", label: "💰 Finanças" },
+
+      // ✅ ESTUDOS (NOVO)
+      { key: "estudos", label: "📚 Estudos" },
+
       { key: "lista", label: "🛒 Lista" },
       { key: "lembretes", label: "⏰ Lembretes" },
       { key: "receitas", label: "🍳 Receitas" },
@@ -447,6 +460,9 @@ export default function App() {
           const lembretesCloud = data.lembretes || DEFAULT_LEMBRETES;
           const receitasCloud = data.receitas || DEFAULT_RECEITAS;
 
+          // ✅ ESTUDOS
+          const estudosCloud = data.estudos || DEFAULT_ESTUDOS;
+
           setProfile(perfilCloud);
           setTransacoes(transacoesCloud);
           setCartoes(cartoesCloud);
@@ -456,6 +472,8 @@ export default function App() {
           setLembretes(lembretesCloud);
           setReceitas(receitasCloud);
 
+          setEstudos(estudosCloud);
+
           saveToStorage(`profile_${uid}`, perfilCloud);
           saveToStorage(`transacoes_${uid}`, transacoesCloud);
           saveToStorage(`cartoes_${uid}`, cartoesCloud);
@@ -464,6 +482,10 @@ export default function App() {
           saveToStorage(`lista_${uid}`, listaCloud);
           saveToStorage(`lembretes_${uid}`, lembretesCloud);
           saveToStorage(`receitas_${uid}`, receitasCloud);
+
+          // ✅ estudos local backup
+          saveToStorage(`estudos_${uid}`, estudosCloud);
+
           // ✅ NÃO salva divisaoCasa no uid (é local do aparelho)
         } else {
           const storedProfile = loadFromStorage(`profile_${uid}`, null);
@@ -475,6 +497,9 @@ export default function App() {
           const storedLembretes = loadFromStorage(`lembretes_${uid}`, null);
           const storedReceitas = loadFromStorage(`receitas_${uid}`, null);
 
+          // ✅ estudos
+          const storedEstudos = loadFromStorage(`estudos_${uid}`, null);
+
           const perfilInicial = storedProfile || DEFAULT_PROFILE;
           const transacoesIniciais = storedTransacoes || [];
           const cartoesIniciais = storedCartoes || [];
@@ -484,6 +509,8 @@ export default function App() {
           const lembretesIniciais = storedLembretes || DEFAULT_LEMBRETES;
           const receitasIniciais = storedReceitas || DEFAULT_RECEITAS;
 
+          const estudosIniciais = storedEstudos || DEFAULT_ESTUDOS;
+
           setProfile(perfilInicial);
           setTransacoes(transacoesIniciais);
           setCartoes(cartoesIniciais);
@@ -492,6 +519,8 @@ export default function App() {
           setLista(listaInicial);
           setLembretes(lembretesIniciais);
           setReceitas(receitasIniciais);
+
+          setEstudos(estudosIniciais);
 
           await setDoc(
             userDocRef,
@@ -503,6 +532,10 @@ export default function App() {
               lista: listaInicial,
               lembretes: lembretesIniciais,
               receitas: receitasIniciais,
+
+              // ✅ estudos
+              estudos: estudosIniciais,
+
               // ✅ NÃO envia divisaoCasa (local)
             },
             { merge: true }
@@ -555,6 +588,9 @@ export default function App() {
           if (data.lembretes) setLembretes(data.lembretes);
           if (data.receitas) setReceitas(data.receitas);
 
+          // ✅ estudos
+          if (data.estudos) setEstudos(data.estudos);
+
           // ✅ NÃO sincroniza divisaoCasa (local)
         });
       } catch (err) {
@@ -570,6 +606,9 @@ export default function App() {
         const storedLembretes = loadFromStorage(`lembretes_${uid}`, DEFAULT_LEMBRETES);
         const storedReceitas = loadFromStorage(`receitas_${uid}`, DEFAULT_RECEITAS);
 
+        // ✅ estudos
+        const storedEstudos = loadFromStorage(`estudos_${uid}`, DEFAULT_ESTUDOS);
+
         setProfile(storedProfile);
         setTransacoes(storedTransacoes);
         setCartoes(storedCartoes);
@@ -578,6 +617,8 @@ export default function App() {
         setLista(storedLista);
         setLembretes(storedLembretes);
         setReceitas(storedReceitas);
+
+        setEstudos(storedEstudos);
 
         const storedMesAuto = loadFromStorage(`mesAuto_${uid}`, true);
         const storedMesRef = loadFromStorage(`mesRef_${uid}`, null);
@@ -624,6 +665,10 @@ export default function App() {
       lista,
       lembretes,
       receitas,
+
+      // ✅ estudos
+      estudos,
+
       // ✅ NÃO envia divisaoCasa (local)
     };
 
@@ -635,6 +680,9 @@ export default function App() {
     saveToStorage(`lista_${uid}`, lista);
     saveToStorage(`lembretes_${uid}`, lembretes);
     saveToStorage(`receitas_${uid}`, receitas);
+
+    // ✅ estudos local backup
+    saveToStorage(`estudos_${uid}`, estudos);
 
     if (!navigator.onLine) {
       saveToStorage(`pendingSync_${uid}`, payload);
@@ -649,7 +697,7 @@ export default function App() {
         console.error("Erro ao salvar dados no Firestore:", err);
         saveToStorage(`pendingSync_${uid}`, payload);
       });
-  }, [user, dadosCarregados, profile, transacoes, cartoes, reserva, lista, lembretes, receitas]);
+  }, [user, dadosCarregados, profile, transacoes, cartoes, reserva, lista, lembretes, receitas, estudos]);
 
   /* ------- 3) SINCRONIZAR PENDÊNCIAS ------- */
 
@@ -741,6 +789,10 @@ export default function App() {
       receitas,
       setReceitas,
 
+      // ✅ estudos
+      estudos,
+      setEstudos,
+
       // ✅ CASA LOCAL (não sincroniza)
       divisaoCasa,
       setDivisaoCasa,
@@ -756,7 +808,20 @@ export default function App() {
       loginComGoogle,
       logout,
     }),
-    [user, profile, transacoes, cartoes, reserva, lista, lembretes, receitas, divisaoCasa, mesReferencia, mesAuto]
+    [
+      user,
+      profile,
+      transacoes,
+      cartoes,
+      reserva,
+      lista,
+      lembretes,
+      receitas,
+      estudos,
+      divisaoCasa,
+      mesReferencia,
+      mesAuto,
+    ]
   );
 
   /* ------- ESCOLHE PÁGINA ------- */
@@ -766,6 +831,12 @@ export default function App() {
     case "financas":
       pagina = <FinancasPage />;
       break;
+
+    // ✅ ESTUDOS (NOVO)
+    case "estudos":
+      pagina = <EstudosPage />;
+      break;
+
     case "lista":
       pagina = <ListaPage />;
       break;
@@ -830,7 +901,9 @@ export default function App() {
           <main className="app-main">
             <div className="card profile-card">
               <h2 className="page-title">Entrar</h2>
-              <p className="muted small">Faça login com sua conta Google para usar o app e salvar seus dados com segurança.</p>
+              <p className="muted small">
+                Faça login com sua conta Google para usar o app e salvar seus dados com segurança.
+              </p>
 
               <button
                 className="primary-btn"
@@ -958,7 +1031,12 @@ export default function App() {
                 </div>
 
                 <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
-                  <button type="button" className="toggle-btn" onClick={() => setMenuMaisAberto(false)} style={{ width: "auto" }}>
+                  <button
+                    type="button"
+                    className="toggle-btn"
+                    onClick={() => setMenuMaisAberto(false)}
+                    style={{ width: "auto" }}
+                  >
                     Fechar
                   </button>
                 </div>
