@@ -24,7 +24,7 @@ function calcularProximoPagamento(diaPagamento) {
   let proximo = criarDataCerta(hoje.getFullYear(), hoje.getMonth(), dia);
 
   if (proximo < hoje) {
-    const ano2 = hoje.getFullYear();
+    const ano2 = hoje.get fullYear();
     const mes2 = hoje.getMonth() + 1;
     proximo = criarDataCerta(ano2, mes2, dia);
   }
@@ -210,6 +210,63 @@ function safeNavigateTo(path) {
   }
 }
 
+/* -------------------- ✅ ADICIONADO: notificação quando abrir Finanças -------------------- */
+
+async function showTopBarNotification(title, body) {
+  if (!("Notification" in window)) return;
+  if (Notification.permission !== "granted") return;
+
+  try {
+    if ("serviceWorker" in navigator) {
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (reg && reg.showNotification) {
+        await reg.showNotification(title, {
+          body,
+          tag: "financas-hoje",
+          renotify: true,
+        });
+        return;
+      }
+    }
+  } catch {}
+
+  try {
+    new Notification(title, { body });
+  } catch {}
+}
+
+function getTodayLembretesForNotification(list) {
+  const now = new Date();
+  const from = startOfDay(now);
+  const to = endOfDay(now);
+
+  const items = Array.isArray(list) ? list : [];
+
+  const todays = items
+    .filter((i) => {
+      if (!i) return false;
+
+      if (i.tipo === "avulso") {
+        if (i.done) return false;
+        const dt = parseLocalDateTime(i.quando);
+        if (!dt) return false;
+        return dt.getTime() >= from.getTime() && dt.getTime() <= to.getTime();
+      }
+
+      if (i.tipo === "recorrente") {
+        if (i.enabled === false) return false;
+        const dt = new Date(i.nextDueISO || "");
+        if (Number.isNaN(dt.getTime())) return false;
+        return dt.getTime() >= from.getTime() && dt.getTime() <= to.getTime();
+      }
+
+      return false;
+    })
+    .slice(0, 8);
+
+  return todays;
+}
+
 /* -------------------- ✅ ADICIONADO: classificação por CLASSE (7 grupos) -------------------- */
 
 const CLASSES_GASTOS = [
@@ -222,14 +279,10 @@ const CLASSES_GASTOS = [
   { key: "imprevistos", label: "IMPREVISTOS" },
 ];
 
-// palavras-chave para “puxar tudo que eu gastei e dividir nas classes”
-// (usa a descrição do gasto; se não bater, cai em “Essenciais” como padrão)
 function classificarClassePorDescricao(descricao) {
   const d = normalizeText(descricao);
-
   const hit = (arr) => arr.some((k) => d.includes(normalizeText(k)));
 
-  // FINANCEIRO
   if (
     hit([
       "cartao",
@@ -266,7 +319,6 @@ function classificarClassePorDescricao(descricao) {
     return "financeiro";
   }
 
-  // EDUCAÇÃO
   if (
     hit([
       "escola",
@@ -291,7 +343,6 @@ function classificarClassePorDescricao(descricao) {
     return "educacao";
   }
 
-  // LAZER
   if (
     hit([
       "restaurante",
@@ -322,7 +373,6 @@ function classificarClassePorDescricao(descricao) {
     return "lazer";
   }
 
-  // PESSOAL
   if (
     hit([
       "roupa",
@@ -345,7 +395,6 @@ function classificarClassePorDescricao(descricao) {
     return "pessoal";
   }
 
-  // CASA
   if (
     hit([
       "manutencao",
@@ -367,7 +416,6 @@ function classificarClassePorDescricao(descricao) {
     return "casa";
   }
 
-  // IMPREVISTOS
   if (
     hit([
       "conserto",
@@ -391,7 +439,6 @@ function classificarClassePorDescricao(descricao) {
     return "imprevistos";
   }
 
-  // ESSENCIAIS (inclui contas do dia a dia)
   if (
     hit([
       "aluguel",
@@ -422,7 +469,6 @@ function classificarClassePorDescricao(descricao) {
     return "essenciais";
   }
 
-  // padrão
   return "essenciais";
 }
 
@@ -438,6 +484,9 @@ export default function FinancasPage() {
 
     // ✅ puxar lembretes do contexto do app
     lembretes,
+
+    // ✅ ADICIONADO: pra chave “1x por dia” por usuário (se existir no seu contexto)
+    user,
   } = useFinance();
 
   const [modalCategorias, setModalCategorias] = useState(false);
@@ -723,8 +772,7 @@ export default function FinancasPage() {
       else totalPorCategoria.outras += t.valor;
     });
 
-    // ✅ NOVO: agrupar TUDO por CLASSE (7 grupos), puxando todos os gastos do mês
-    const porClasse = new Map(); // key -> { label, total, itemsMap }
+    const porClasse = new Map();
     CLASSES_GASTOS.forEach((c) => {
       porClasse.set(c.key, { key: c.key, label: c.label, total: 0, itemsMap: new Map() });
     });
@@ -736,7 +784,6 @@ export default function FinancasPage() {
       const v = Number(t.valor || 0);
       bucket.total += v;
 
-      // agrupa itens iguais (descrição) com contagem
       const k = normalizarNome(t.descricao);
       const cur = bucket.itemsMap.get(k) || { descricao: t.descricao, total: 0, count: 0 };
       cur.total += v;
@@ -751,7 +798,6 @@ export default function FinancasPage() {
       return { ...b, items };
     });
 
-    // total geral do mês (já existe em totalMes, mas deixo explícito)
     const totalMes = sum(tudo);
 
     return {
@@ -827,6 +873,27 @@ export default function FinancasPage() {
 
     return { today: today.slice(0, 3), todayCount: today.length, upcoming, days };
   }, [lembretesList]);
+
+  /* ✅ NOVO: notifica assim que abrir Finanças (1x por dia) */
+  useEffect(() => {
+    if (!("Notification" in window)) return;
+    if (Notification.permission !== "granted") return;
+
+    const todayKey = toLocalDateKey(new Date());
+    const keyLS = user?.uid ? `pwa_fin_today_notif_${user.uid}` : "pwa_fin_today_notif_local";
+    const last = localStorage.getItem(keyLS) || "";
+    if (last === todayKey) return;
+
+    const todays = getTodayLembretesForNotification(lembretesList);
+    if (!todays.length) return;
+
+    const body = todays.map((t) => `• ${t.titulo}`).join("\n");
+    showTopBarNotification("📌 Tarefas de hoje", body);
+
+    try {
+      localStorage.setItem(keyLS, todayKey);
+    } catch {}
+  }, [lembretesList, user?.uid]);
 
   /* ----------------------------------------------------------------------------------------------------------- */
 
@@ -1214,7 +1281,6 @@ export default function FinancasPage() {
               {nomeMes} / {mesReferencia.ano}
             </p>
 
-            {/* ✅ o que você pediu: total + total por categoria (sempre aparece) */}
             <div className="card" style={{ marginTop: 10 }}>
               <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
                 <span>
@@ -1257,7 +1323,6 @@ export default function FinancasPage() {
               </ul>
             </div>
 
-            {/* ✅ NOVO: puxar TUDO e dividir nas 7 classes */}
             <div className="card" style={{ marginTop: 10 }}>
               <h4 style={{ marginBottom: 8 }}>CATEGORIAS DE GASTOS (por classe)</h4>
               <p className="muted small" style={{ marginTop: 0 }}>
@@ -1313,7 +1378,6 @@ export default function FinancasPage() {
               </div>
             </div>
 
-            {/* mantém comida/transporte do seu modal atual */}
             <div className="card" style={{ marginTop: 10 }}>
               <h4 style={{ marginBottom: 8 }}>🍔 Comida</h4>
 
