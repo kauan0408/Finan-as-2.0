@@ -24,7 +24,7 @@ function calcularProximoPagamento(diaPagamento) {
   let proximo = criarDataCerta(hoje.getFullYear(), hoje.getMonth(), dia);
 
   if (proximo < hoje) {
-    const ano2 = hoje.get fullYear();
+    const ano2 = hoje.getFullYear();
     const mes2 = hoje.getMonth() + 1;
     proximo = criarDataCerta(ano2, mes2, dia);
   }
@@ -102,17 +102,7 @@ function isFood(desc) {
 
 function isTransport(desc) {
   const d = normalizeText(desc);
-  const keys = [
-    "uber",
-    "99",
-    "taxi",
-    "táxi",
-    "onibus",
-    "ônibus",
-    "passagem",
-    "transporte",
-    "corrida",
-  ];
+  const keys = ["uber", "99", "taxi", "táxi", "onibus", "ônibus", "passagem", "transporte", "corrida"];
   return keys.some((k) => d.includes(normalizeText(k)));
 }
 
@@ -131,7 +121,7 @@ function prevMonth(ano, mes0) {
   return { ano: y, mes: m };
 }
 
-/* -------------------- ✅ ADICIONADO: helpers para lembretes (compacto) -------------------- */
+/* -------------------- ✅ helpers para lembretes (compacto) -------------------- */
 
 function pad2(n) {
   return String(n).padStart(2, "0");
@@ -193,7 +183,7 @@ function fmtTimeHHmm(d) {
   }
 }
 
-/* ✅ ADICIONADO: navegação sem depender de react-router */
+/* ✅ navegação sem depender de react-router */
 function safeNavigateTo(path) {
   try {
     const p = String(path || "/");
@@ -210,64 +200,7 @@ function safeNavigateTo(path) {
   }
 }
 
-/* -------------------- ✅ ADICIONADO: notificação quando abrir Finanças -------------------- */
-
-async function showTopBarNotification(title, body) {
-  if (!("Notification" in window)) return;
-  if (Notification.permission !== "granted") return;
-
-  try {
-    if ("serviceWorker" in navigator) {
-      const reg = await navigator.serviceWorker.getRegistration();
-      if (reg && reg.showNotification) {
-        await reg.showNotification(title, {
-          body,
-          tag: "financas-hoje",
-          renotify: true,
-        });
-        return;
-      }
-    }
-  } catch {}
-
-  try {
-    new Notification(title, { body });
-  } catch {}
-}
-
-function getTodayLembretesForNotification(list) {
-  const now = new Date();
-  const from = startOfDay(now);
-  const to = endOfDay(now);
-
-  const items = Array.isArray(list) ? list : [];
-
-  const todays = items
-    .filter((i) => {
-      if (!i) return false;
-
-      if (i.tipo === "avulso") {
-        if (i.done) return false;
-        const dt = parseLocalDateTime(i.quando);
-        if (!dt) return false;
-        return dt.getTime() >= from.getTime() && dt.getTime() <= to.getTime();
-      }
-
-      if (i.tipo === "recorrente") {
-        if (i.enabled === false) return false;
-        const dt = new Date(i.nextDueISO || "");
-        if (Number.isNaN(dt.getTime())) return false;
-        return dt.getTime() >= from.getTime() && dt.getTime() <= to.getTime();
-      }
-
-      return false;
-    })
-    .slice(0, 8);
-
-  return todays;
-}
-
-/* -------------------- ✅ ADICIONADO: classificação por CLASSE (7 grupos) -------------------- */
+/* -------------------- ✅ classificação por CLASSE (7 grupos) -------------------- */
 
 const CLASSES_GASTOS = [
   { key: "essenciais", label: "ESSENCIAIS" },
@@ -481,15 +414,35 @@ export default function FinancasPage() {
     mesReferencia,
     mudarMesReferencia,
     irParaMesAtual,
-
-    // ✅ puxar lembretes do contexto do app
-    lembretes,
-
-    // ✅ ADICIONADO: pra chave “1x por dia” por usuário (se existir no seu contexto)
-    user,
+    lembretes, // ✅ puxar lembretes do contexto do app
   } = useFinance();
 
   const [modalCategorias, setModalCategorias] = useState(false);
+
+  // ✅ BOTÃO DE NOTIFICAÇÃO (só pede permissão ao clicar)
+  const [notifStatus, setNotifStatus] = useState(
+    "Notification" in window ? Notification.permission : "unsupported"
+  );
+
+  async function ativarNotificacoes() {
+    if (!("Notification" in window)) {
+      alert("Seu navegador não suporta notificações.");
+      return;
+    }
+    try {
+      const perm = await Notification.requestPermission();
+      setNotifStatus(perm);
+
+      if (perm === "granted") {
+        // teste simples
+        new Notification("🔔 Notificações ativadas!", {
+          body: "Agora você pode receber avisos dos seus lembretes.",
+        });
+      }
+    } catch {
+      alert("Não consegui ativar notificações. Verifique as permissões do navegador.");
+    }
+  }
 
   const salariosPorMes = profile?.salariosPorMes || {};
 
@@ -576,8 +529,7 @@ export default function FinancasPage() {
           if (!v) return;
 
           const key = normalizarNome(t.descricao || "Sem descrição");
-          const atual =
-            mapa.get(key) || { descricao: t.descricao || "Sem descrição", valor: 0, count: 0 };
+          const atual = mapa.get(key) || { descricao: t.descricao || "Sem descrição", valor: 0, count: 0 };
           atual.valor += v;
           atual.count += 1;
 
@@ -598,8 +550,7 @@ export default function FinancasPage() {
           count: x.count,
         }));
 
-      const totalCat =
-        categorias.essencial + categorias.lazer + categorias.burrice + categorias.investido || 1;
+      const totalCat = categorias.essencial + categorias.lazer + categorias.burrice + categorias.investido || 1;
 
       return {
         receitas,
@@ -644,17 +595,14 @@ export default function FinancasPage() {
   const { resumoAtual, pendenteAnterior } = resumo;
 
   const chaveMesAtual = monthKey(mesReferencia.ano, mesReferencia.mes);
-  const salarioFixo = Number(
-    (profile?.salariosPorMes || {})[chaveMesAtual] ?? profile?.rendaMensal ?? 0
-  );
+  const salarioFixo = Number((profile?.salariosPorMes || {})[chaveMesAtual] ?? profile?.rendaMensal ?? 0);
 
   const limiteGastoMensal = Number(profile?.limiteGastoMensal || 0);
 
   const diaPagamento = profile?.diaPagamento || "";
   const proximoPag = diaPagamento ? calcularProximoPagamento(diaPagamento) : null;
 
-  const resultadoSalario =
-    salarioFixo > 0 ? salarioFixo - resumoAtual.despesas - pendenteAnterior : null;
+  const resultadoSalario = salarioFixo > 0 ? salarioFixo - resumoAtual.despesas - pendenteAnterior : null;
 
   const saldoComSalario =
     salarioFixo > 0
@@ -741,9 +689,7 @@ export default function FinancasPage() {
         const cur = m.get(k) || { descricao: t.descricao, total: 0, count: 0 };
         cur.total += Number(t.valor || 0);
         cur.count += 1;
-        if ((!cur.descricao || cur.descricao === "Sem descrição") && t.descricao) {
-          cur.descricao = t.descricao;
-        }
+        if ((!cur.descricao || cur.descricao === "Sem descrição") && t.descricao) cur.descricao = t.descricao;
         m.set(k, cur);
       });
       return Array.from(m.values()).sort((a, b) => b.total - a.total);
@@ -814,7 +760,7 @@ export default function FinancasPage() {
     };
   }, [transacoes, mesReferencia, resumoAtual.gastosFixos]);
 
-  /* -------------------- ✅ lembretes compactos -------------------- */
+  /* -------------------- lembretes compactos -------------------- */
 
   const [lembretesFallback, setLembretesFallback] = useState([]);
   useEffect(() => {
@@ -874,27 +820,6 @@ export default function FinancasPage() {
     return { today: today.slice(0, 3), todayCount: today.length, upcoming, days };
   }, [lembretesList]);
 
-  /* ✅ NOVO: notifica assim que abrir Finanças (1x por dia) */
-  useEffect(() => {
-    if (!("Notification" in window)) return;
-    if (Notification.permission !== "granted") return;
-
-    const todayKey = toLocalDateKey(new Date());
-    const keyLS = user?.uid ? `pwa_fin_today_notif_${user.uid}` : "pwa_fin_today_notif_local";
-    const last = localStorage.getItem(keyLS) || "";
-    if (last === todayKey) return;
-
-    const todays = getTodayLembretesForNotification(lembretesList);
-    if (!todays.length) return;
-
-    const body = todays.map((t) => `• ${t.titulo}`).join("\n");
-    showTopBarNotification("📌 Tarefas de hoje", body);
-
-    try {
-      localStorage.setItem(keyLS, todayKey);
-    } catch {}
-  }, [lembretesList, user?.uid]);
-
   /* ----------------------------------------------------------------------------------------------------------- */
 
   return (
@@ -926,13 +851,8 @@ export default function FinancasPage() {
       <div className="card resumo-card">
         <div className="resumo-footer">
           {resultadoSalario !== null && (
-            <span
-              className={
-                "badge badge-pill " + (resultadoSalario >= 0 ? "badge-positive" : "badge-negative")
-              }
-            >
-              {resultadoSalario >= 0 ? "Sobrou" : "Faltou"}{" "}
-              {formatCurrency(Math.abs(resultadoSalario))}
+            <span className={"badge badge-pill " + (resultadoSalario >= 0 ? "badge-positive" : "badge-negative")}>
+              {resultadoSalario >= 0 ? "Sobrou" : "Faltou"} {formatCurrency(Math.abs(resultadoSalario))}
             </span>
           )}
         </div>
@@ -974,9 +894,7 @@ export default function FinancasPage() {
               {diaPagamento ? (
                 <>
                   <span>Dia {diaPagamento}</span>
-                  {proximoPag && (
-                    <span className="pill-sub">Próx. em {proximoPag.diasRestantes} dia(s)</span>
-                  )}
+                  {proximoPag && <span className="pill-sub">Próx. em {proximoPag.diasRestantes} dia(s)</span>}
                 </>
               ) : (
                 <span>Sem dia definido</span>
@@ -1003,19 +921,34 @@ export default function FinancasPage() {
             }}
             title="Clique para abrir Lembretes"
           >
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                gap: 10,
-                alignItems: "center",
-              }}
-            >
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontWeight: 800, fontSize: 14 }}>📌 Lembretes</div>
                 <div className="muted small" style={{ marginTop: 2 }}>
                   Hoje: <b>{lembretesCompact.todayCount}</b>
                   {lembretesCompact.todayCount > 3 ? " (mostrando 3)" : ""}
+                </div>
+
+                {/* ✅ BOTÃO: Ativar notificações (só pede permissão ao clicar) */}
+                <div style={{ marginTop: 8 }}>
+                  {notifStatus === "granted" ? (
+                    <span className="badge badge-pill badge-positive">🔔 Notificações ativas</span>
+                  ) : notifStatus === "unsupported" ? (
+                    <span className="badge badge-pill badge-negative">🔕 Sem suporte a notificações</span>
+                  ) : (
+                    <button
+                      className="toggle-btn"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation(); // não abre a página de lembretes ao clicar no botão
+                        ativarNotificacoes();
+                      }}
+                      type="button"
+                      style={{ padding: "8px 10px" }}
+                    >
+                      🔔 Ativar notificações
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -1029,12 +962,7 @@ export default function FinancasPage() {
                     <div
                       key={d.key}
                       title={`${fmtShortBR(d.date)} • ${count} lembrete(s)`}
-                      style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        alignItems: "center",
-                        width: 34,
-                      }}
+                      style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 34 }}
                     >
                       <div
                         style={{
@@ -1063,14 +991,7 @@ export default function FinancasPage() {
               <ul className="list" style={{ marginTop: 8 }}>
                 {lembretesCompact.today.map((t) => (
                   <li key={t.id} className="list-item" style={{ padding: "8px 10px" }}>
-                    <span
-                      style={{
-                        minWidth: 0,
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
+                    <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {t.titulo}{" "}
                       <span className="muted small" style={{ fontWeight: 600 }}>
                         • {t.tipo === "recorrente" ? "recorrente" : "avulso"}
@@ -1233,8 +1154,7 @@ export default function FinancasPage() {
 
           <div className="weeks-grid">
             {resumoAtual.semanas.map((v, i) => {
-              const pct =
-                resumoAtual.maxSemana > 0 ? Math.max(2, (v / resumoAtual.maxSemana) * 100) : 2;
+              const pct = resumoAtual.maxSemana > 0 ? Math.max(2, (v / resumoAtual.maxSemana) * 100) : 2;
 
               return (
                 <div className="week-cell" key={i}>
@@ -1251,13 +1171,7 @@ export default function FinancasPage() {
                       marginBottom: 6,
                     }}
                   >
-                    <div
-                      style={{
-                        width: `${pct}%`,
-                        height: "100%",
-                        background: "rgba(143,163,255,.85)",
-                      }}
-                    />
+                    <div style={{ width: `${pct}%`, height: "100%", background: "rgba(143,163,255,.85)" }} />
                   </div>
 
                   <span className="bar-label">Sem {i + 1}</span>
@@ -1357,9 +1271,7 @@ export default function FinancasPage() {
                             <li key={idx} className="list-item" style={{ padding: "8px 10px" }}>
                               <span style={{ minWidth: 0, overflowWrap: "anywhere" }}>
                                 {it.descricao}
-                                {it.count > 1 ? (
-                                  <span className="muted small"> · {it.count}x</span>
-                                ) : null}
+                                {it.count > 1 ? <span className="muted small"> · {it.count}x</span> : null}
                               </span>
                               <span style={{ whiteSpace: "nowrap" }}>{formatCurrency(it.total)}</span>
                             </li>
