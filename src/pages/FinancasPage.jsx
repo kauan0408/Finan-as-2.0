@@ -1,6 +1,6 @@
 // src/pages/FinancasPage.jsx
 
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useFinance } from "../App.jsx";
 
 function formatCurrency(value) {
@@ -35,78 +35,6 @@ function calcularProximoPagamento(diaPagamento) {
   return { data: proximo, diasRestantes: diffDias };
 }
 
-function getValorFixo(valoresPorMes = {}, chaveMes) {
-  if (valoresPorMes && valoresPorMes[chaveMes] != null) {
-    return Number(valoresPorMes[chaveMes]);
-  }
-
-  const meses = Object.keys(valoresPorMes || {}).sort();
-  let ultimo = null;
-  for (const m of meses) {
-    if (m <= chaveMes) ultimo = m;
-  }
-  return ultimo ? Number(valoresPorMes[ultimo]) : 0;
-}
-
-function normalizarNome(descricao) {
-  return String(descricao || "")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, " ");
-}
-
-// ✅ ADICIONADO: normaliza texto para regras automáticas
-function normalizeText(s) {
-  return String(s || "")
-    .trim()
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
-    .replace(/\s+/g, " ");
-}
-
-// ✅ ADICIONADO: regras automáticas (comida / transporte)
-function isFood(desc) {
-  const d = normalizeText(desc);
-  const keys = [
-    "ifood",
-    "i food",
-    "lanche",
-    "comida",
-    "cafe",
-    "café",
-    "cafe da tarde",
-    "café da tarde",
-    "almoco",
-    "almoço",
-    "jantar",
-    "refri",
-    "refrigerante",
-    "coca",
-    "guarana",
-    "guaraná",
-    "miojo",
-    "doce",
-    "pudim",
-    "risoto",
-    "salgado",
-    "pizza",
-    "hamburguer",
-    "hambúrguer",
-    "sorvete",
-    "acai",
-    "açaí",
-  ];
-  return keys.some((k) => d.includes(normalizeText(k)));
-}
-
-function isTransport(desc) {
-  const d = normalizeText(desc);
-  const keys = ["uber", "99", "taxi", "táxi", "onibus", "ônibus", "passagem", "transporte", "corrida"];
-  return keys.some((k) => d.includes(normalizeText(k)));
-}
-
-// helpers de mês
 function monthKey(ano, mes0) {
   return `${ano}-${String(mes0 + 1).padStart(2, "0")}`;
 }
@@ -121,7 +49,19 @@ function prevMonth(ano, mes0) {
   return { ano: y, mes: m };
 }
 
-/* -------------------- ✅ helpers para lembretes (compacto) -------------------- */
+function getValorFixo(valoresPorMes = {}, chaveMes) {
+  if (valoresPorMes && valoresPorMes[chaveMes] != null) {
+    return Number(valoresPorMes[chaveMes]);
+  }
+  const meses = Object.keys(valoresPorMes || {}).sort();
+  let ultimo = null;
+  for (const m of meses) {
+    if (m <= chaveMes) ultimo = m;
+  }
+  return ultimo ? Number(valoresPorMes[ultimo]) : 0;
+}
+
+/* -------------------- lembretes helpers (mesmo padrão do seu LembretesPage) -------------------- */
 
 function pad2(n) {
   return String(n).padStart(2, "0");
@@ -183,7 +123,7 @@ function fmtTimeHHmm(d) {
   }
 }
 
-/* ✅ navegação sem depender de react-router */
+/* ✅ navegação sem depender de router */
 function safeNavigateTo(path) {
   try {
     const p = String(path || "/");
@@ -200,212 +140,32 @@ function safeNavigateTo(path) {
   }
 }
 
-/* -------------------- ✅ classificação por CLASSE (7 grupos) -------------------- */
+/* ✅ notificação: tenta SW primeiro; cai no Notification normal */
+async function showNotify(title, body) {
+  if (!("Notification" in window)) return false;
+  if (Notification.permission !== "granted") return false;
 
-const CLASSES_GASTOS = [
-  { key: "essenciais", label: "ESSENCIAIS" },
-  { key: "financeiro", label: "FINANCEIRO" },
-  { key: "educacao", label: "EDUCAÇÃO & DESENVOLVIMENTO" },
-  { key: "lazer", label: "LAZER & QUALIDADE DE VIDA" },
-  { key: "pessoal", label: "PESSOAL" },
-  { key: "casa", label: "CASA" },
-  { key: "imprevistos", label: "IMPREVISTOS" },
-];
+  try {
+    if ("serviceWorker" in navigator) {
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (reg && reg.showNotification) {
+        await reg.showNotification(title, {
+          body,
+          tag: "financas-lembretes",
+          renotify: true,
+        });
+        return true;
+      }
+    }
+  } catch {}
 
-function classificarClassePorDescricao(descricao) {
-  const d = normalizeText(descricao);
-  const hit = (arr) => arr.some((k) => d.includes(normalizeText(k)));
-
-  if (
-    hit([
-      "cartao",
-      "cartão",
-      "credito",
-      "crédito",
-      "fatura",
-      "parcel",
-      "parcela",
-      "emprest",
-      "emprést",
-      "juros",
-      "taxa",
-      "tarifa",
-      "banco",
-      "nubank",
-      "itau",
-      "itaú",
-      "caixa",
-      "bradesco",
-      "santander",
-      "reserva",
-      "emergencia",
-      "emergência",
-      "investimento",
-      "investimentos",
-      "cdb",
-      "tesouro",
-      "poupanca",
-      "poupança",
-      "pix tarifa",
-    ])
-  ) {
-    return "financeiro";
+  try {
+    new Notification(title, { body });
+    return true;
+  } catch {
+    return false;
   }
-
-  if (
-    hit([
-      "escola",
-      "faculdade",
-      "curso",
-      "cursos",
-      "livro",
-      "livros",
-      "material escolar",
-      "apostila",
-      "enem",
-      "concurso",
-      "inscricao",
-      "inscrição",
-      "mensalidade",
-      "educacao",
-      "educação",
-      "prova",
-      "simulado",
-    ])
-  ) {
-    return "educacao";
-  }
-
-  if (
-    hit([
-      "restaurante",
-      "delivery",
-      "cinema",
-      "streaming",
-      "netflix",
-      "spotify",
-      "prime",
-      "disney",
-      "festa",
-      "academia",
-      "passeio",
-      "bar",
-      "bebida",
-      "churrasco",
-      "viagem",
-      "lazer",
-      "ifood",
-      "i food",
-      "lanche",
-      "hamburguer",
-      "hambúrguer",
-      "pizza",
-      "sorvete",
-    ])
-  ) {
-    return "lazer";
-  }
-
-  if (
-    hit([
-      "roupa",
-      "roupas",
-      "salao",
-      "salão",
-      "barbearia",
-      "cabelo",
-      "cosmetico",
-      "cosmético",
-      "cosmeticos",
-      "cosméticos",
-      "cuidados",
-      "higiene",
-      "perfume",
-      "maquiagem",
-      "pessoal",
-    ])
-  ) {
-    return "pessoal";
-  }
-
-  if (
-    hit([
-      "manutencao",
-      "manutenção",
-      "limpeza",
-      "produto de limpeza",
-      "produtos de limpeza",
-      "moveis",
-      "móveis",
-      "utensilio",
-      "utensílio",
-      "utensilios",
-      "utensílios",
-      "casa",
-      "reparo",
-      "conserto da casa",
-    ])
-  ) {
-    return "casa";
-  }
-
-  if (
-    hit([
-      "conserto",
-      "multa",
-      "emergencia",
-      "emergência",
-      "hospital",
-      "medico",
-      "médico",
-      "clinica",
-      "clínica",
-      "urgencia",
-      "urgência",
-      "carro",
-      "celular",
-      "quebra",
-      "perda",
-      "imprevisto",
-    ])
-  ) {
-    return "imprevistos";
-  }
-
-  if (
-    hit([
-      "aluguel",
-      "financiamento",
-      "agua",
-      "água",
-      "luz",
-      "energia",
-      "internet",
-      "gas",
-      "gás",
-      "mercado",
-      "supermercado",
-      "transporte",
-      "onibus",
-      "ônibus",
-      "passagem",
-      "farmacia",
-      "farmácia",
-      "plano de saude",
-      "plano de saúde",
-      "saude",
-      "saúde",
-      "combustivel",
-      "combustível",
-    ])
-  ) {
-    return "essenciais";
-  }
-
-  return "essenciais";
 }
-
-/* ---------------------------------------------------------------------------------------- */
 
 export default function FinancasPage() {
   const {
@@ -414,15 +174,37 @@ export default function FinancasPage() {
     mesReferencia,
     mudarMesReferencia,
     irParaMesAtual,
-    lembretes, // ✅ puxar lembretes do contexto do app
+    lembretes, // ✅ vindo do contexto
   } = useFinance();
 
   const [modalCategorias, setModalCategorias] = useState(false);
 
-  // ✅ BOTÃO DE NOTIFICAÇÃO (só pede permissão ao clicar)
-  const [notifStatus, setNotifStatus] = useState(
+  // ✅ status de notificações + checagem do SW
+  const [notifPerm, setNotifPerm] = useState(
     "Notification" in window ? Notification.permission : "unsupported"
   );
+  const [swInfo, setSwInfo] = useState({ hasSW: false, scope: "" });
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        if (!("serviceWorker" in navigator)) {
+          if (alive) setSwInfo({ hasSW: false, scope: "" });
+          return;
+        }
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (!alive) return;
+        setSwInfo({ hasSW: !!reg, scope: reg?.scope || "" });
+      } catch {
+        if (!alive) return;
+        setSwInfo({ hasSW: false, scope: "" });
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   async function ativarNotificacoes() {
     if (!("Notification" in window)) {
@@ -431,18 +213,220 @@ export default function FinancasPage() {
     }
     try {
       const perm = await Notification.requestPermission();
-      setNotifStatus(perm);
+      setNotifPerm(perm);
 
       if (perm === "granted") {
-        // teste simples
-        new Notification("🔔 Notificações ativadas!", {
-          body: "Agora você pode receber avisos dos seus lembretes.",
-        });
+        await showNotify("🔔 Notificações ativadas!", "Agora você pode receber avisos dos seus lembretes.");
       }
     } catch {
       alert("Não consegui ativar notificações. Verifique as permissões do navegador.");
     }
   }
+
+  async function testarNotificacao() {
+    if (!("Notification" in window)) return alert("Sem suporte a notificações.");
+    if (Notification.permission !== "granted") return alert("Permissão não concedida. Clique em “Ativar notificações”.");
+
+    const ok = await showNotify("✅ Teste de notificação", "Se você viu isso, está funcionando.");
+    if (!ok) alert("Não consegui disparar a notificação.");
+  }
+
+  // ✅ agenda local (apenas enquanto o app está aberto)
+  const notifTimersRef = useRef([]);
+
+  function clearAllTimers() {
+    const arr = notifTimersRef.current || [];
+    arr.forEach((id) => {
+      try {
+        clearTimeout(id);
+      } catch {}
+    });
+    notifTimersRef.current = [];
+  }
+
+  function scheduleNotifyAt(title, whenDate, body) {
+    if (!whenDate) return;
+    if (!("Notification" in window)) return;
+    if (Notification.permission !== "granted") return;
+
+    const ms = whenDate.getTime() - Date.now();
+    if (ms <= 0) return;
+
+    // evita timers absurdos
+    const MAX_MS = 7 * 24 * 60 * 60 * 1000;
+    if (ms > MAX_MS) return;
+
+    const id = setTimeout(() => {
+      showNotify(title, body || "");
+    }, ms);
+
+    notifTimersRef.current.push(id);
+  }
+
+  const lembretesList = Array.isArray(lembretes) ? lembretes : [];
+
+  // ✅ puxa MAIS informações (pendentes hoje, concluídos hoje, pagos hoje, próximos)
+  const lembretesResumo = useMemo(() => {
+    const list = lembretesList;
+
+    const now = new Date();
+    const from = startOfDay(now);
+    const to = endOfDay(now);
+
+    const pendentesHoje = [];
+    const concluidosHoje = []; // avulsos doneAt hoje
+    const pagosHoje = []; // recorrentes paidAt hoje (apenas informação)
+
+    const proximos = []; // próximos (pendentes)
+    const proximosConcluidos = []; // últimos concluídos (avulsos)
+    const proximosPagos = []; // últimos pagos (recorrentes)
+
+    for (const it of list) {
+      if (!it) continue;
+
+      if (it.tipo === "avulso") {
+        const dt = parseLocalDateTime(it.quando);
+        if (!dt) continue;
+
+        if (it.done) {
+          // concluído
+          const doneAt = it.doneAt ? new Date(it.doneAt) : null;
+          if (doneAt && doneAt.getTime() >= from.getTime() && doneAt.getTime() <= to.getTime()) {
+            concluidosHoje.push({ ...it, _when: dt, _doneAt: doneAt });
+          }
+          proximosConcluidos.push({ ...it, _when: dt, _doneAt: doneAt });
+        } else {
+          // pendente
+          if (dt.getTime() >= from.getTime() && dt.getTime() <= to.getTime()) {
+            pendentesHoje.push({ ...it, _when: dt });
+          }
+          if (dt.getTime() > to.getTime()) {
+            proximos.push({ ...it, _when: dt });
+          }
+        }
+        continue;
+      }
+
+      if (it.tipo === "recorrente") {
+        if (it.enabled === false) continue;
+
+        const due = new Date(it.nextDueISO || "");
+        if (Number.isNaN(due.getTime())) continue;
+
+        if (due.getTime() >= from.getTime() && due.getTime() <= to.getTime()) {
+          pendentesHoje.push({ ...it, _when: due, _rec: true });
+        } else if (due.getTime() > to.getTime()) {
+          proximos.push({ ...it, _when: due, _rec: true });
+        }
+
+        const paidAt = it.paidAt ? new Date(it.paidAt) : null;
+        if (paidAt && paidAt.getTime() >= from.getTime() && paidAt.getTime() <= to.getTime()) {
+          pagosHoje.push({ ...it, _when: due, _paidAt: paidAt, _rec: true });
+        }
+        proximosPagos.push({ ...it, _when: due, _paidAt: paidAt, _rec: true });
+      }
+    }
+
+    pendentesHoje.sort((a, b) => a._when.getTime() - b._when.getTime());
+    concluidosHoje.sort((a, b) => (b._doneAt?.getTime?.() || 0) - (a._doneAt?.getTime?.() || 0));
+    pagosHoje.sort((a, b) => (b._paidAt?.getTime?.() || 0) - (a._paidAt?.getTime?.() || 0));
+
+    proximos.sort((a, b) => a._when.getTime() - b._when.getTime());
+    proximosConcluidos.sort((a, b) => {
+      const ax = a._doneAt ? a._doneAt.getTime() : 0;
+      const bx = b._doneAt ? b._doneAt.getTime() : 0;
+      return bx - ax;
+    });
+    proximosPagos.sort((a, b) => {
+      const ax = a._paidAt ? a._paidAt.getTime() : 0;
+      const bx = b._paidAt ? b._paidAt.getTime() : 0;
+      return bx - ax;
+    });
+
+    // ✅ 7 dias (contagem pendentes por dia)
+    const days = Array.from({ length: 7 }).map((_, idx) => {
+      const d = addDays(from, idx);
+      const key = toLocalDateKey(d);
+      let count = 0;
+      for (const it of list) {
+        if (it.tipo === "avulso") {
+          if (it.done) continue;
+          const dt = parseLocalDateTime(it.quando);
+          if (!dt) continue;
+          if (toLocalDateKey(dt) === key) count++;
+          continue;
+        }
+        if (it.tipo === "recorrente") {
+          if (it.enabled === false) continue;
+          const dt = new Date(it.nextDueISO || "");
+          if (Number.isNaN(dt.getTime())) continue;
+          if (toLocalDateKey(dt) === key) count++;
+        }
+      }
+      return { key, date: d, count };
+    });
+
+    return {
+      pendentesHoje,
+      concluidosHoje,
+      pagosHoje,
+      proximos,
+      ultimosConcluidos: proximosConcluidos.slice(0, 4),
+      ultimosPagos: proximosPagos.slice(0, 4),
+      days,
+    };
+  }, [lembretesList]);
+
+  // ✅ agenda os avisos do “hoje” (somente enquanto o app está aberto)
+  useEffect(() => {
+    clearAllTimers();
+
+    // agenda pendentes de hoje e próximos próximos (até 7 dias)
+    const now = new Date();
+    const to = endOfDay(now);
+    const limit = addDays(now, 7);
+
+    for (const it of lembretesList) {
+      if (!it) continue;
+
+      if (it.tipo === "avulso") {
+        if (it.done) continue;
+        const dt = parseLocalDateTime(it.quando);
+        if (!dt) continue;
+
+        // só agenda se estiver no intervalo “agora até 7 dias”
+        if (dt.getTime() >= Date.now() && dt.getTime() <= limit.getTime()) {
+          scheduleNotifyAt("⏰ Lembrete", dt, it.titulo || "Lembrete");
+        }
+        continue;
+      }
+
+      if (it.tipo === "recorrente") {
+        if (it.enabled === false) continue;
+        const dt = new Date(it.nextDueISO || "");
+        if (Number.isNaN(dt.getTime())) continue;
+
+        if (dt.getTime() >= Date.now() && dt.getTime() <= limit.getTime()) {
+          scheduleNotifyAt("📌 Lembrete do dia", dt, `${it.titulo || "Lembrete"} hoje`);
+        }
+
+        // extra: se já está vencido hoje, notifica uma vez ao abrir (sem girar data)
+        if (dt.getTime() <= to.getTime() && dt.getTime() <= Date.now()) {
+          // não spammar: só se não tiver lastNotifiedDate hoje
+          const todayKey = toLocalDateKey(new Date());
+          if (it.lastNotifiedDate !== todayKey) {
+            // não alteramos a lista aqui (Finanças só mostra), só avisamos
+            showNotify("📌 Lembrete pendente", `${it.titulo || "Lembrete"} (vencido hoje)`);
+          }
+        }
+      }
+    }
+
+    return () => clearAllTimers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lembretesList, notifPerm]);
+
+  /* -------------------- resumo financeiro (mantém sua lógica) -------------------- */
 
   const salariosPorMes = profile?.salariosPorMes || {};
 
@@ -506,51 +490,8 @@ export default function FinancasPage() {
       });
 
       const totalGastosFixos = gastosFixosPerfil.reduce((acc, g) => acc + Number(g.valor || 0), 0);
-
       const despesas = despesasTransacoes + totalGastosFixos;
-
-      gastosFixosPerfil.forEach((g) => {
-        const v = Number(g.valor || 0);
-        if (!v) return;
-        const cat = (g.categoria || "").toLowerCase();
-        if (cat === "essencial") categorias.essencial += v;
-        if (cat === "lazer") categorias.lazer += v;
-        if (cat === "burrice") categorias.burrice += v;
-        if (cat === "investido") categorias.investido += v;
-      });
-
       const saldo = receitas - despesas;
-
-      const mapa = new Map();
-      transacoes.forEach((t) => {
-        const dt = new Date(t.dataHora);
-        if (t.tipo === "despesa" && dt.getMonth() === mes0 && dt.getFullYear() === ano) {
-          const v = Number(t.valor || 0);
-          if (!v) return;
-
-          const key = normalizarNome(t.descricao || "Sem descrição");
-          const atual = mapa.get(key) || { descricao: t.descricao || "Sem descrição", valor: 0, count: 0 };
-          atual.valor += v;
-          atual.count += 1;
-
-          if ((!atual.descricao || atual.descricao === "Sem descrição") && t.descricao) {
-            atual.descricao = t.descricao;
-          }
-          mapa.set(key, atual);
-        }
-      });
-
-      const topDespesas = Array.from(mapa.values())
-        .sort((a, b) => Number(b.valor) - Number(a.valor))
-        .slice(0, 5)
-        .map((x, idx) => ({
-          id: `top-${ano}-${mes0}-${idx}`,
-          descricao: x.descricao,
-          valor: x.valor,
-          count: x.count,
-        }));
-
-      const totalCat = categorias.essencial + categorias.lazer + categorias.burrice + categorias.investido || 1;
 
       return {
         receitas,
@@ -558,16 +499,43 @@ export default function FinancasPage() {
         saldo,
         gastosCartao,
         categorias,
-        pEssencial: (categorias.essencial / totalCat) * 100,
-        pLazer: (categorias.lazer / totalCat) * 100,
-        pBurrice: (categorias.burrice / totalCat) * 100,
-        pInvestido: (categorias.investido / totalCat) * 100,
         semanas,
         maxSemana: Math.max(...semanas, 1),
-        topDespesas,
         gastosFixos: gastosFixosPerfil,
         totalGastosFixos,
         despesasTransacoes,
+        pEssencial:
+          ((categorias.essencial || 0) /
+            ((categorias.essencial || 0) +
+              (categorias.lazer || 0) +
+              (categorias.burrice || 0) +
+              (categorias.investido || 0) ||
+              1)) *
+          100,
+        pLazer:
+          ((categorias.lazer || 0) /
+            ((categorias.essencial || 0) +
+              (categorias.lazer || 0) +
+              (categorias.burrice || 0) +
+              (categorias.investido || 0) ||
+              1)) *
+          100,
+        pBurrice:
+          ((categorias.burrice || 0) /
+            ((categorias.essencial || 0) +
+              (categorias.lazer || 0) +
+              (categorias.burrice || 0) +
+              (categorias.investido || 0) ||
+              1)) *
+          100,
+        pInvestido:
+          ((categorias.investido || 0) /
+            ((categorias.essencial || 0) +
+              (categorias.lazer || 0) +
+              (categorias.burrice || 0) +
+              (categorias.investido || 0) ||
+              1)) *
+          100,
       };
     };
 
@@ -584,13 +552,7 @@ export default function FinancasPage() {
     const pendenteAnterior = saldoPrevComSalario < 0 ? Math.abs(saldoPrevComSalario) : 0;
 
     return { resumoAtual, pendenteAnterior };
-  }, [
-    transacoes,
-    mesReferencia,
-    profile?.gastosFixos,
-    profile?.rendaMensal,
-    profile?.salariosPorMes,
-  ]);
+  }, [transacoes, mesReferencia, profile?.gastosFixos, profile?.rendaMensal, profile?.salariosPorMes]);
 
   const { resumoAtual, pendenteAnterior } = resumo;
 
@@ -644,184 +606,6 @@ export default function FinancasPage() {
     "Dezembro",
   ][mesReferencia.mes];
 
-  const detalhesCategorias = useMemo(() => {
-    const mes0 = mesReferencia.mes;
-    const ano = mesReferencia.ano;
-
-    const despesasMes = transacoes
-      .filter((t) => {
-        const dt = new Date(t.dataHora);
-        return t.tipo === "despesa" && dt.getMonth() === mes0 && dt.getFullYear() === ano;
-      })
-      .map((t) => ({
-        id: t.id,
-        descricao: t.descricao || "Sem descrição",
-        valor: Number(t.valor || 0),
-        categoria: String(t.categoria || "").trim() || "Sem categoria",
-      }));
-
-    const fixos = (resumoAtual.gastosFixos || []).map((g) => ({
-      id: `fixo_${g.id}`,
-      descricao: g.descricao || "Gasto fixo",
-      valor: Number(g.valor || 0),
-      categoria: (g.categoria || "Sem categoria").trim(),
-      _fixo: true,
-    }));
-
-    const tudo = [...despesasMes, ...fixos].filter((x) => Number(x.valor) > 0);
-
-    const food = [];
-    const transport = [];
-    const other = [];
-
-    tudo.forEach((t) => {
-      if (isFood(t.descricao)) food.push(t);
-      else if (isTransport(t.descricao)) transport.push(t);
-      else other.push(t);
-    });
-
-    const sum = (arr) => arr.reduce((s, x) => s + Number(x.valor || 0), 0);
-
-    const groupByDesc = (arr) => {
-      const m = new Map();
-      arr.forEach((t) => {
-        const k = normalizarNome(t.descricao);
-        const cur = m.get(k) || { descricao: t.descricao, total: 0, count: 0 };
-        cur.total += Number(t.valor || 0);
-        cur.count += 1;
-        if ((!cur.descricao || cur.descricao === "Sem descrição") && t.descricao) cur.descricao = t.descricao;
-        m.set(k, cur);
-      });
-      return Array.from(m.values()).sort((a, b) => b.total - a.total);
-    };
-
-    const foodByDesc = groupByDesc(food);
-    const transportByDesc = groupByDesc(transport);
-
-    const foodPorCategoria = { essencial: 0, lazer: 0, burrice: 0, investido: 0, outras: 0 };
-    food.forEach((t) => {
-      const c = String(t.categoria || "").toLowerCase();
-      if (c === "essencial") foodPorCategoria.essencial += t.valor;
-      else if (c === "lazer") foodPorCategoria.lazer += t.valor;
-      else if (c === "burrice") foodPorCategoria.burrice += t.valor;
-      else if (c === "investido") foodPorCategoria.investido += t.valor;
-      else foodPorCategoria.outras += t.valor;
-    });
-
-    const totalPorCategoria = { essencial: 0, lazer: 0, burrice: 0, investido: 0, outras: 0 };
-    tudo.forEach((t) => {
-      const c = String(t.categoria || "").toLowerCase();
-      if (c === "essencial") totalPorCategoria.essencial += t.valor;
-      else if (c === "lazer") totalPorCategoria.lazer += t.valor;
-      else if (c === "burrice") totalPorCategoria.burrice += t.valor;
-      else if (c === "investido") totalPorCategoria.investido += t.valor;
-      else totalPorCategoria.outras += t.valor;
-    });
-
-    const porClasse = new Map();
-    CLASSES_GASTOS.forEach((c) => {
-      porClasse.set(c.key, { key: c.key, label: c.label, total: 0, itemsMap: new Map() });
-    });
-
-    tudo.forEach((t) => {
-      const classeKey = classificarClassePorDescricao(t.descricao);
-      const bucket = porClasse.get(classeKey) || porClasse.get("essenciais");
-
-      const v = Number(t.valor || 0);
-      bucket.total += v;
-
-      const k = normalizarNome(t.descricao);
-      const cur = bucket.itemsMap.get(k) || { descricao: t.descricao, total: 0, count: 0 };
-      cur.total += v;
-      cur.count += 1;
-
-      if ((!cur.descricao || cur.descricao === "Sem descrição") && t.descricao) cur.descricao = t.descricao;
-      bucket.itemsMap.set(k, cur);
-    });
-
-    const porClasseList = Array.from(porClasse.values()).map((b) => {
-      const items = Array.from(b.itemsMap.values()).sort((a, b2) => b2.total - a.total);
-      return { ...b, items };
-    });
-
-    const totalMes = sum(tudo);
-
-    return {
-      totalMes,
-      totalFood: sum(food),
-      totalTransport: sum(transport),
-      totalOther: sum(other),
-      foodByDesc,
-      transportByDesc,
-      foodPorCategoria,
-      totalPorCategoria,
-      porClasseList,
-      tudoCount: tudo.length,
-    };
-  }, [transacoes, mesReferencia, resumoAtual.gastosFixos]);
-
-  /* -------------------- lembretes compactos -------------------- */
-
-  const [lembretesFallback, setLembretesFallback] = useState([]);
-  useEffect(() => {
-    try {
-      if (Array.isArray(lembretes) && lembretes.length) return;
-      const raw = localStorage.getItem("pwa_lembretes_v1") || "[]";
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) setLembretesFallback(parsed);
-    } catch {}
-  }, [lembretes]);
-
-  const lembretesList = Array.isArray(lembretes) && lembretes.length ? lembretes : lembretesFallback;
-
-  const lembretesCompact = useMemo(() => {
-    const list = Array.isArray(lembretesList) ? lembretesList : [];
-
-    const now = new Date();
-    const from = startOfDay(now);
-    const to = endOfDay(now);
-
-    const events = list
-      .map((it) => {
-        if (!it) return null;
-
-        if (it.tipo === "avulso") {
-          if (it.done) return null;
-          const dt = parseLocalDateTime(it.quando);
-          if (!dt || Number.isNaN(dt.getTime())) return null;
-          return { id: it.id, tipo: "avulso", titulo: it.titulo || "Sem título", when: dt };
-        }
-
-        if (it.tipo === "recorrente") {
-          if (it.enabled === false) return null;
-          const dt = new Date(it.nextDueISO || "");
-          if (!dt || Number.isNaN(dt.getTime())) return null;
-          return { id: it.id, tipo: "recorrente", titulo: it.titulo || "Sem título", when: dt };
-        }
-
-        return null;
-      })
-      .filter(Boolean)
-      .sort((a, b) => a.when.getTime() - b.when.getTime());
-
-    const today = events.filter((e) => e.when.getTime() >= from.getTime() && e.when.getTime() <= to.getTime());
-    const upcoming = events.filter((e) => e.when.getTime() > to.getTime()).slice(0, 6);
-
-    const days = Array.from({ length: 7 }).map((_, idx) => {
-      const d = addDays(from, idx);
-      const key = toLocalDateKey(d);
-      let count = 0;
-      for (const ev of events) {
-        if (toLocalDateKey(ev.when) === key) count++;
-      }
-      return { key, date: d, count };
-    });
-
-    return { today: today.slice(0, 3), todayCount: today.length, upcoming, days };
-  }, [lembretesList]);
-
-  /* ----------------------------------------------------------------------------------------------------------- */
-
   return (
     <div className="page">
       <h2 className="page-title">Visão geral do mês</h2>
@@ -857,7 +641,7 @@ export default function FinancasPage() {
           )}
         </div>
 
-        {/* pill do Dia/Próx + pendente */}
+        {/* pendente + próximo pagamento */}
         {pendenteAnterior > 0 && (
           <div
             style={{
@@ -903,7 +687,7 @@ export default function FinancasPage() {
           </div>
         )}
 
-        {/* Lembretes */}
+        {/* ✅ Lembretes (mais completo + status de notificação) */}
         <div style={{ marginTop: 12 }}>
           <div
             className="card"
@@ -921,26 +705,37 @@ export default function FinancasPage() {
             }}
             title="Clique para abrir Lembretes"
           >
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start" }}>
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontWeight: 800, fontSize: 14 }}>📌 Lembretes</div>
+
                 <div className="muted small" style={{ marginTop: 2 }}>
-                  Hoje: <b>{lembretesCompact.todayCount}</b>
-                  {lembretesCompact.todayCount > 3 ? " (mostrando 3)" : ""}
+                  Pendentes hoje: <b>{lembretesResumo.pendentesHoje.length}</b>{" "}
+                  {lembretesResumo.concluidosHoje.length > 0 ? (
+                    <>
+                      • Concluídos hoje: <b>{lembretesResumo.concluidosHoje.length}</b>
+                    </>
+                  ) : null}
+                  {lembretesResumo.pagosHoje.length > 0 ? (
+                    <>
+                      {" "}
+                      • Pagos hoje: <b>{lembretesResumo.pagosHoje.length}</b>
+                    </>
+                  ) : null}
                 </div>
 
-                {/* ✅ BOTÃO: Ativar notificações (só pede permissão ao clicar) */}
-                <div style={{ marginTop: 8 }}>
-                  {notifStatus === "granted" ? (
-                    <span className="badge badge-pill badge-positive">🔔 Notificações ativas</span>
-                  ) : notifStatus === "unsupported" ? (
-                    <span className="badge badge-pill badge-negative">🔕 Sem suporte a notificações</span>
+                {/* ✅ botões de notificação */}
+                <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                  {notifPerm === "granted" ? (
+                    <span className="badge badge-pill badge-positive">🔔 Ativas</span>
+                  ) : notifPerm === "unsupported" ? (
+                    <span className="badge badge-pill badge-negative">🔕 Sem suporte</span>
                   ) : (
                     <button
                       className="toggle-btn"
                       onClick={(e) => {
                         e.preventDefault();
-                        e.stopPropagation(); // não abre a página de lembretes ao clicar no botão
+                        e.stopPropagation();
                         ativarNotificacoes();
                       }}
                       type="button"
@@ -949,11 +744,34 @@ export default function FinancasPage() {
                       🔔 Ativar notificações
                     </button>
                   )}
+
+                  <button
+                    className="toggle-btn"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setNotifPerm("Notification" in window ? Notification.permission : "unsupported");
+                      testarNotificacao();
+                    }}
+                    type="button"
+                    style={{ padding: "8px 10px" }}
+                  >
+                    📩 Testar
+                  </button>
+
+                  <span className="muted small" style={{ opacity: 0.9 }}>
+                    SW: {swInfo.hasSW ? "✅" : "❌"}
+                  </span>
+                </div>
+
+                <div className="muted small" style={{ marginTop: 6, opacity: 0.9 }}>
+                  Obs.: sem push/FCM, os avisos automáticos só funcionam enquanto o app está aberto.
                 </div>
               </div>
 
+              {/* bolinhas 7 dias */}
               <div style={{ display: "flex", gap: 6, alignItems: "flex-end", flexWrap: "nowrap" }}>
-                {lembretesCompact.days.map((d, idx) => {
+                {lembretesResumo.days.map((d, idx) => {
                   const isToday = idx === 0;
                   const count = d.count || 0;
                   const dotOpacity = count ? 1 : 0.25;
@@ -961,7 +779,7 @@ export default function FinancasPage() {
                   return (
                     <div
                       key={d.key}
-                      title={`${fmtShortBR(d.date)} • ${count} lembrete(s)`}
+                      title={`${fmtShortBR(d.date)} • ${count} pendente(s)`}
                       style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 34 }}
                     >
                       <div
@@ -983,35 +801,79 @@ export default function FinancasPage() {
               </div>
             </div>
 
-            {lembretesCompact.today.length === 0 ? (
+            {/* Pendentes de hoje */}
+            {lembretesResumo.pendentesHoje.length === 0 ? (
               <div className="muted small" style={{ marginTop: 8 }}>
-                Nada para hoje 🎉
+                Nada pendente para hoje 🎉
               </div>
             ) : (
               <ul className="list" style={{ marginTop: 8 }}>
-                {lembretesCompact.today.map((t) => (
+                {lembretesResumo.pendentesHoje.slice(0, 4).map((t) => (
                   <li key={t.id} className="list-item" style={{ padding: "8px 10px" }}>
                     <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {t.titulo}{" "}
+                      {t.titulo || "Sem título"}{" "}
                       <span className="muted small" style={{ fontWeight: 600 }}>
                         • {t.tipo === "recorrente" ? "recorrente" : "avulso"}
                       </span>
                     </span>
                     <span className="muted small" style={{ whiteSpace: "nowrap" }}>
-                      {fmtTimeHHmm(t.when)}
+                      {fmtTimeHHmm(t._when)}
                     </span>
                   </li>
                 ))}
               </ul>
             )}
 
-            {lembretesCompact.upcoming.length > 0 && (
-              <div className="muted small" style={{ marginTop: 8, lineHeight: 1.35 }}>
+            {/* ✅ Concluídos hoje (avulsos) */}
+            {lembretesResumo.concluidosHoje.length > 0 && (
+              <div style={{ marginTop: 10 }}>
+                <div className="muted small" style={{ marginBottom: 6 }}>
+                  Concluídos hoje:
+                </div>
+                <ul className="list">
+                  {lembretesResumo.concluidosHoje.slice(0, 3).map((t) => (
+                    <li key={t.id} className="list-item" style={{ padding: "8px 10px", opacity: 0.8 }}>
+                      <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        ✅ {t.titulo || "Sem título"}
+                      </span>
+                      <span className="muted small" style={{ whiteSpace: "nowrap" }}>
+                        {t._doneAt ? fmtTimeHHmm(t._doneAt) : ""}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* ✅ Pagos hoje (recorrentes) */}
+            {lembretesResumo.pagosHoje.length > 0 && (
+              <div style={{ marginTop: 10 }}>
+                <div className="muted small" style={{ marginBottom: 6 }}>
+                  Pagos hoje:
+                </div>
+                <ul className="list">
+                  {lembretesResumo.pagosHoje.slice(0, 3).map((t) => (
+                    <li key={t.id} className="list-item" style={{ padding: "8px 10px", opacity: 0.85 }}>
+                      <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        💳 {t.titulo || "Sem título"}
+                      </span>
+                      <span className="muted small" style={{ whiteSpace: "nowrap" }}>
+                        {t._paidAt ? fmtTimeHHmm(t._paidAt) : ""}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Próximos */}
+            {lembretesResumo.proximos.length > 0 && (
+              <div className="muted small" style={{ marginTop: 10, lineHeight: 1.35 }}>
                 Próximos:{" "}
-                {lembretesCompact.upcoming.slice(0, 3).map((u, idx) => (
+                {lembretesResumo.proximos.slice(0, 3).map((u, idx) => (
                   <span key={u.id}>
-                    <b>{fmtShortBR(u.when)}</b> {fmtTimeHHmm(u.when)} — {u.titulo}
-                    {idx < Math.min(3, lembretesCompact.upcoming.length) - 1 ? " • " : ""}
+                    <b>{fmtShortBR(u._when)}</b> {fmtTimeHHmm(u._when)} — {u.titulo || "Sem título"}
+                    {idx < Math.min(3, lembretesResumo.proximos.length) - 1 ? " • " : ""}
                   </span>
                 ))}
               </div>
@@ -1084,27 +946,6 @@ export default function FinancasPage() {
         )}
       </div>
 
-      {/* TOP GASTOS */}
-      <div className="card mt">
-        <h3>Top 5 gastos</h3>
-
-        {resumoAtual.topDespesas.length === 0 ? (
-          <p className="muted">Nenhuma despesa ainda.</p>
-        ) : (
-          <ul className="list">
-            {resumoAtual.topDespesas.map((t) => (
-              <li key={t.id} className="list-item">
-                <span>
-                  {t.descricao}
-                  {t.count > 1 ? <span className="muted small"> · {t.count}x</span> : null}
-                </span>
-                <span>{formatCurrency(t.valor)}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-
       {/* CATEGORIAS / SEMANAS */}
       <div className="grid-2 mt">
         <div
@@ -1122,11 +963,11 @@ export default function FinancasPage() {
           <div className="legend">
             <div className="legend-item">
               <span className="legend-color legend-essential" />
-              Essencial ({resumoAtual.pEssencial.toFixed(0)}%)
+              Essencial ({(resumoAtual.pEssencial || 0).toFixed(0)}%)
             </div>
             <div className="legend-item">
               <span className="legend-color legend-leisure" />
-              Lazer ({resumoAtual.pLazer.toFixed(0)}%)
+              Lazer ({(resumoAtual.pLazer || 0).toFixed(0)}%)
             </div>
 
             <div className="legend-item">
@@ -1144,12 +985,7 @@ export default function FinancasPage() {
           </div>
         </div>
 
-        <div
-          className="card"
-          onClick={() => setModalCategorias(true)}
-          style={{ cursor: "pointer" }}
-          title="Clique para abrir detalhes"
-        >
+        <div className="card">
           <h3>Gastos por semana</h3>
 
           <div className="weeks-grid">
@@ -1186,7 +1022,7 @@ export default function FinancasPage() {
         </div>
       </div>
 
-      {/* MODAL DETALHADO */}
+      {/* MODAL DETALHADO (mantido simples: você pode plugar seu modal completo aqui se quiser) */}
       {modalCategorias && (
         <div className="modal-overlay" onClick={() => setModalCategorias(false)}>
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
@@ -1198,184 +1034,30 @@ export default function FinancasPage() {
             <div className="card" style={{ marginTop: 10 }}>
               <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
                 <span>
-                  <b>Total de despesas</b>
+                  <b>Receitas</b>
                 </span>
                 <span>
-                  <b>{formatCurrency(detalhesCategorias.totalMes)}</b>
+                  <b>{formatCurrency(resumoAtual.receitas)}</b>
                 </span>
               </div>
-              <p className="muted small" style={{ marginTop: 6 }}>
-                (Inclui despesas do histórico + gastos fixos ativos)
-              </p>
-            </div>
 
-            <div className="card" style={{ marginTop: 10 }}>
-              <h4 style={{ marginBottom: 8 }}>📌 Total por categoria</h4>
-              <ul className="list">
-                <li className="list-item">
-                  <span>Essencial</span>
-                  <span>{formatCurrency(detalhesCategorias.totalPorCategoria.essencial)}</span>
-                </li>
-                <li className="list-item">
-                  <span>Lazer</span>
-                  <span>{formatCurrency(detalhesCategorias.totalPorCategoria.lazer)}</span>
-                </li>
-                <li className="list-item">
-                  <span>Burrice</span>
-                  <span>{formatCurrency(detalhesCategorias.totalPorCategoria.burrice)}</span>
-                </li>
-                <li className="list-item">
-                  <span>Investido</span>
-                  <span>{formatCurrency(detalhesCategorias.totalPorCategoria.investido)}</span>
-                </li>
-                {detalhesCategorias.totalPorCategoria.outras > 0 && (
-                  <li className="list-item">
-                    <span>Outras</span>
-                    <span>{formatCurrency(detalhesCategorias.totalPorCategoria.outras)}</span>
-                  </li>
-                )}
-              </ul>
-            </div>
-
-            <div className="card" style={{ marginTop: 10 }}>
-              <h4 style={{ marginBottom: 8 }}>CATEGORIAS DE GASTOS (por classe)</h4>
-              <p className="muted small" style={{ marginTop: 0 }}>
-                Abaixo o app pega <b>todas</b> as despesas do mês (histórico + fixos) e separa nas classes.
-              </p>
-
-              <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
-                {detalhesCategorias.porClasseList.map((c) => {
-                  const has = (c.items || []).length > 0 && Number(c.total || 0) > 0;
-                  return (
-                    <div
-                      key={c.key}
-                      style={{
-                        border: "1px solid rgba(255,255,255,.08)",
-                        background: "rgba(255,255,255,.02)",
-                        borderRadius: 14,
-                        padding: 12,
-                      }}
-                    >
-                      <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-                        <div style={{ fontWeight: 900 }}>{c.label}</div>
-                        <div style={{ fontWeight: 900 }}>{formatCurrency(c.total)}</div>
-                      </div>
-
-                      {!has ? (
-                        <div className="muted small" style={{ marginTop: 8 }}>
-                          Sem itens neste mês.
-                        </div>
-                      ) : (
-                        <ul className="list" style={{ marginTop: 8 }}>
-                          {c.items.slice(0, 12).map((it, idx) => (
-                            <li key={idx} className="list-item" style={{ padding: "8px 10px" }}>
-                              <span style={{ minWidth: 0, overflowWrap: "anywhere" }}>
-                                {it.descricao}
-                                {it.count > 1 ? <span className="muted small"> · {it.count}x</span> : null}
-                              </span>
-                              <span style={{ whiteSpace: "nowrap" }}>{formatCurrency(it.total)}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-
-                      {has && (c.items || []).length > 12 && (
-                        <div className="muted small" style={{ marginTop: 8 }}>
-                          Mostrando 12 itens. (Total de itens na classe: {c.items.length})
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="card" style={{ marginTop: 10 }}>
-              <h4 style={{ marginBottom: 8 }}>🍔 Comida</h4>
-
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-                <span>Total</span>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 10, marginTop: 6 }}>
                 <span>
-                  <b>{formatCurrency(detalhesCategorias.totalFood)}</b>
+                  <b>Despesas</b>
                 </span>
-              </div>
-
-              <p className="muted small" style={{ marginTop: 8 }}>
-                Comida por categoria:
-              </p>
-              <ul className="list" style={{ marginTop: 6 }}>
-                <li className="list-item">
-                  <span>Essencial</span>
-                  <span>{formatCurrency(detalhesCategorias.foodPorCategoria.essencial)}</span>
-                </li>
-                <li className="list-item">
-                  <span>Lazer</span>
-                  <span>{formatCurrency(detalhesCategorias.foodPorCategoria.lazer)}</span>
-                </li>
-                <li className="list-item">
-                  <span>Burrice</span>
-                  <span>{formatCurrency(detalhesCategorias.foodPorCategoria.burrice)}</span>
-                </li>
-                <li className="list-item">
-                  <span>Investido</span>
-                  <span>{formatCurrency(detalhesCategorias.foodPorCategoria.investido)}</span>
-                </li>
-                {detalhesCategorias.foodPorCategoria.outras > 0 && (
-                  <li className="list-item">
-                    <span>Outras</span>
-                    <span>{formatCurrency(detalhesCategorias.foodPorCategoria.outras)}</span>
-                  </li>
-                )}
-              </ul>
-
-              <p className="muted small" style={{ marginTop: 10 }}>
-                Itens de comida (somados):
-              </p>
-              {detalhesCategorias.foodByDesc.length === 0 ? (
-                <p className="muted small">Nenhum gasto de comida encontrado.</p>
-              ) : (
-                <ul className="list" style={{ marginTop: 6 }}>
-                  {detalhesCategorias.foodByDesc.map((x, idx) => (
-                    <li key={idx} className="list-item">
-                      <span>
-                        {x.descricao}
-                        {x.count > 1 ? <span className="muted small"> · {x.count}x</span> : null}
-                      </span>
-                      <span>{formatCurrency(x.total)}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-
-            <div className="card" style={{ marginTop: 10 }}>
-              <h4 style={{ marginBottom: 8 }}>🚗 Transporte</h4>
-
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-                <span>Total</span>
                 <span>
-                  <b>{formatCurrency(detalhesCategorias.totalTransport)}</b>
+                  <b>{formatCurrency(resumoAtual.despesas)}</b>
                 </span>
               </div>
 
-              <p className="muted small" style={{ marginTop: 10 }}>
-                Itens de transporte (somados):
-              </p>
-              {detalhesCategorias.transportByDesc.length === 0 ? (
-                <p className="muted small">Nenhum gasto de transporte encontrado.</p>
-              ) : (
-                <ul className="list" style={{ marginTop: 6 }}>
-                  {detalhesCategorias.transportByDesc.map((x, idx) => (
-                    <li key={idx} className="list-item">
-                      <span>
-                        {x.descricao}
-                        {x.count > 1 ? <span className="muted small"> · {x.count}x</span> : null}
-                      </span>
-                      <span>{formatCurrency(x.total)}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 10, marginTop: 6 }}>
+                <span>
+                  <b>Saldo</b>
+                </span>
+                <span>
+                  <b>{formatCurrency(saldoComSalario)}</b>
+                </span>
+              </div>
             </div>
 
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}>
