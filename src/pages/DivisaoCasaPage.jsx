@@ -3,6 +3,7 @@
 // ✅ Requer: npm i jspdf jspdf-autotable
 //
 // ✅ AGORA (SEU PEDIDO):
+// ✅ + BACKUP/RESTORE por ARQUIVO (.json) para não perder dados ao atualizar o código
 // ✅ TODOS os botões de APAGAR / EXCLUIR usam um MODAL BONITO de confirmação
 // (sem window.confirm)
 
@@ -406,7 +407,11 @@ export default function DivisaoCasaPage() {
   const [state, setState] = useState(() => DEFAULT_STATE);
 
   // ✅ Modais
-  const [modal, setModal] = useState(null); // "config" | "pessoas" | "passado" | "pdf" | null
+  const [modal, setModal] = useState(null); // "config" | "pessoas" | "passado" | "pdf" | "backup" | null
+
+  // ✅ Backup Import/Export
+  const [backupFileName, setBackupFileName] = useState("");
+  const [backupError, setBackupError] = useState("");
 
   // ✅ Confirmações (modal bonitinho)
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -475,6 +480,121 @@ export default function DivisaoCasaPage() {
       }
       return next;
     });
+  }
+
+  // ✅ sanitize de backup (mantém suas regras e retenção)
+  function sanitizeLoadedState(rawObj) {
+    const raw = rawObj && typeof rawObj === "object" ? rawObj : {};
+    const merged = { ...DEFAULT_STATE, ...raw };
+
+    merged.moradoresCount = clamp(merged.moradoresCount ?? 2, 1, 5);
+    merged.moradores = ensureMoradores(merged.moradores, merged.moradoresCount);
+    merged.fixos = Array.isArray(merged.fixos) ? merged.fixos : [];
+    merged.porMes = merged.porMes && typeof merged.porMes === "object" ? merged.porMes : {};
+    merged.fixosPagosPorMes =
+      merged.fixosPagosPorMes && typeof merged.fixosPagosPorMes === "object"
+        ? merged.fixosPagosPorMes
+        : {};
+
+    // ✅ mantém só os 2 meses (sua regra)
+    merged.porMes = keepOnlyTwoMonths(merged.porMes, mesKeyReal);
+
+    // ✅ limita também o pagosPorMes pros mesmos 2 meses
+    const keep = new Set([mesKeyReal, prevRealKey].filter(Boolean));
+    const pagosClean = {};
+    Object.keys(merged.fixosPagosPorMes).forEach((k) => {
+      if (keep.has(k)) pagosClean[k] = !!merged.fixosPagosPorMes[k];
+    });
+    merged.fixosPagosPorMes = pagosClean;
+
+    return merged;
+  }
+
+  function exportBackupJSON() {
+    try {
+      const payload = {
+        app: "pwa_divisao_casa",
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        data: state,
+      };
+
+      const text = JSON.stringify(payload, null, 2);
+      const blob = new Blob([text], { type: "application/json;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `backup_divisao_casa_${mesKeyReal}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+
+      URL.revokeObjectURL(url);
+      setBackupError("");
+    } catch (e) {
+      console.error(e);
+      setBackupError("Não consegui exportar o backup.");
+    }
+  }
+
+  async function importBackupJSON(file) {
+    setBackupError("");
+    setBackupFileName(file?.name || "");
+
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const parsed = safeJSONParse(text, null);
+
+      // aceita tanto {data:{...}} quanto o objeto direto
+      const data = parsed?.data && typeof parsed.data === "object" ? parsed.data : parsed;
+
+      if (!data || typeof data !== "object") {
+        setBackupError("Arquivo inválido: não encontrei dados.");
+        return;
+      }
+
+      openConfirm({
+        title: "♻️ Restaurar backup",
+        danger: true,
+        confirmText: "Sim, restaurar",
+        cancelText: "Cancelar",
+        body: (
+          <div>
+            <div style={{ marginBottom: 10 }}>
+              Isso vai <b>SUBSTITUIR</b> os dados atuais da Casa por este backup.
+            </div>
+            <div className="audio-card" style={{ padding: 12 }}>
+              <div style={{ fontWeight: 900 }}>{file.name}</div>
+              <div className="muted small" style={{ marginTop: 6 }}>
+                Depois de restaurar, seus dados voltam a salvar normalmente.
+              </div>
+            </div>
+          </div>
+        ),
+        onConfirm: () => {
+          closeConfirm();
+
+          const cleaned = sanitizeLoadedState(data);
+
+          try {
+            localStorage.setItem(LS_KEY, JSON.stringify(cleaned));
+          } catch (e) {
+            console.error(e);
+          }
+
+          setState(cleaned);
+          resetForm();
+          setBackupError("");
+          setModal(null);
+        },
+      });
+    } catch (e) {
+      console.error(e);
+      setBackupError("Não consegui ler esse arquivo. Ele está corrompido ou não é JSON.");
+    }
   }
 
   // load
@@ -1124,6 +1244,9 @@ export default function DivisaoCasaPage() {
           <button type="button" className="chip" style={{ width: "auto" }} onClick={() => setModal("pdf")}>
             📄 PDF
           </button>
+          <button type="button" className="chip" style={{ width: "auto" }} onClick={() => setModal("backup")}>
+            💾 Backup
+          </button>
         </div>
 
         <div className="muted small" style={{ marginTop: 10 }}>
@@ -1431,6 +1554,45 @@ export default function DivisaoCasaPage() {
           <button type="button" className="primary-btn" onClick={gerarPDF}>
             Gerar PDF com assinaturas
           </button>
+        </AppModal>
+      )}
+
+      {modal === "backup" && (
+        <AppModal title="💾 Backup (não perder dados)" onClose={() => setModal(null)}>
+          <div className="muted small" style={{ marginBottom: 10 }}>
+            Use <b>Exportar</b> antes de atualizar o app, e <b>Importar</b> se precisar restaurar.
+            <div style={{ marginTop: 6 }}>
+              (PDF é para impressão. Para restaurar dados, o mais seguro é <b>JSON</b>.)
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button type="button" className="primary-btn" style={{ width: "auto" }} onClick={exportBackupJSON}>
+              ⬇️ Exportar backup (.json)
+            </button>
+
+            <label className="chip" style={{ width: "auto", cursor: "pointer" }}>
+              ⬆️ Importar backup (.json)
+              <input
+                type="file"
+                accept="application/json,.json"
+                style={{ display: "none" }}
+                onChange={(e) => importBackupJSON(e.target.files?.[0])}
+              />
+            </label>
+          </div>
+
+          {backupFileName ? (
+            <div className="muted small" style={{ marginTop: 10 }}>
+              Arquivo selecionado: <b>{backupFileName}</b>
+            </div>
+          ) : null}
+
+          {backupError ? (
+            <div style={{ marginTop: 10, padding: 10, borderRadius: 10, background: "rgba(248,113,113,0.25)" }}>
+              <b>Erro:</b> {backupError}
+            </div>
+          ) : null}
         </AppModal>
       )}
 
