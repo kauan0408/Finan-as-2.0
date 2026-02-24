@@ -190,9 +190,16 @@ async function showTopBarNotification(title, body, tag = "finance-agenda") {
 
 /* -------------------- ✅ Recorrência (fallback) -------------------- */
 function computeNextDueFallback(item, baseDate = new Date()) {
-  // Fallback bem tolerante: tenta achar "a cada" + unidade, senão joga +1 dia
   const every =
-    Number(item?.every ?? item?.aCada ?? item?.interval ?? item?.intervalo ?? item?.intervalDays ?? item?.dias ?? 0) || 1;
+    Number(
+      item?.every ??
+        item?.aCada ??
+        item?.interval ??
+        item?.intervalo ??
+        item?.intervalDays ??
+        item?.dias ??
+        0
+    ) || 1;
 
   const unitRaw = String(
     item?.unit ?? item?.unidade ?? item?.periodo ?? item?.freq ?? item?.frequencia ?? "dias"
@@ -213,13 +220,303 @@ function computeNextDueFallback(item, baseDate = new Date()) {
     b.setFullYear(b.getFullYear() + every);
     return b;
   }
-  // dias (padrão)
   b.setDate(b.getDate() + every);
   return b;
 }
 
+/* -------------------- ✅ CLASSIFICAÇÕES DETALHADAS (para o modal do mês) -------------------- */
+function includesAny(text, arr) {
+  const t = normalizeText(text);
+  return (arr || []).some((k) => t.includes(normalizeText(k)));
+}
+
+function classifyGroup(descricao, categoriaRaw = "") {
+  const d = String(descricao || "");
+  const cat = String(categoriaRaw || "").toLowerCase();
+
+  // prioridade por “categoria” do app
+  if (cat === "investido") return "INVESTIMENTOS";
+  if (cat === "burrice") return "GASTOS_EMOCIONAIS";
+
+  // por palavras-chave
+  if (
+    includesAny(d, [
+      "aluguel",
+      "financiamento",
+      "condominio",
+      "condomínio",
+      "iptu",
+      "energia",
+      "luz",
+      "copasa",
+      "agua",
+      "água",
+      "cemig",
+      "gás",
+      "gas",
+      "internet",
+      "wifi",
+      "manutenção",
+      "manutencao",
+      "encanador",
+      "eletricista",
+      "seguro residencial",
+      "móveis",
+      "moveis",
+      "utensílios",
+      "utensilios",
+    ])
+  )
+    return "MORADIA";
+
+  if (
+    includesAny(d, [
+      "combustivel",
+      "combustível",
+      "gasolina",
+      "etanol",
+      "diesel",
+      "uber",
+      "99",
+      "taxi",
+      "táxi",
+      "ônibus",
+      "onibus",
+      "passagem",
+      "estacionamento",
+      "pedágio",
+      "pedagio",
+      "ipva",
+      "seguro do carro",
+      "seguro carro",
+      "multa",
+      "multas",
+      "mecânico",
+      "mecanico",
+      "oficina",
+      "parcela do carro",
+      "parcela carro",
+    ])
+  )
+    return "TRANSPORTE";
+
+  if (
+    includesAny(d, [
+      "supermercado",
+      "mercado",
+      "feira",
+      "açougue",
+      "acougue",
+      "padaria",
+      "ifood",
+      "i food",
+      "delivery",
+      "restaurante",
+      "lanches",
+      "lanche",
+      "café",
+      "cafe",
+      "água mineral",
+      "agua mineral",
+      "almoço",
+      "almoco",
+      "jantar",
+    ]) ||
+    isFood(d)
+  )
+    return "ALIMENTACAO";
+
+  if (
+    includesAny(d, [
+      "plano de saúde",
+      "plano de saude",
+      "consulta",
+      "consultas",
+      "exame",
+      "exames",
+      "medicamento",
+      "medicamentos",
+      "farmacia",
+      "farmácia",
+      "dentista",
+      "psicologo",
+      "psicólogo",
+      "academia",
+      "suplemento",
+      "suplementos",
+      "terapia",
+      "hospital",
+      "clinica",
+      "clínica",
+    ])
+  )
+    return "SAUDE";
+
+  if (
+    includesAny(d, [
+      "mensalidade",
+      "curso",
+      "cursos",
+      "livro",
+      "livros",
+      "material escolar",
+      "plataforma",
+      "concurso",
+      "certificado",
+      "certificados",
+      "evento",
+      "eventos",
+      "faculdade",
+      "escola",
+      "apostila",
+    ]) ||
+    cat === "educacao"
+  )
+    return "EDUCACAO";
+
+  if (includesAny(d, ["roupa", "roupas", "sapato", "sapatos", "acessorio", "acessório", "uniforme", "costureira"]))
+    return "VESTUARIO";
+
+  if (
+    includesAny(d, ["cinema", "streaming", "netflix", "spotify", "show", "shows", "viagem", "viagens", "passeio", "jogo", "jogos"]) ||
+    cat === "lazer"
+  )
+    return "LAZER";
+
+  if (
+    includesAny(d, [
+      "juros",
+      "tarifa",
+      "iof",
+      "empréstimo",
+      "emprestimo",
+      "financiamento",
+      "consórcio",
+      "consorcio",
+      "parcela",
+      "parcelas",
+      "fatura",
+      "cartão",
+      "cartao",
+      "banco",
+    ])
+  )
+    return "FINANCEIRO";
+
+  if (includesAny(d, ["presente", "presentes", "aniversario", "aniversário", "data comemorativa", "doação", "doacao", "igreja", "dizimo", "dízimo", "contribuicao", "contribuição"]))
+    return "PRESENTES_E_EVENTOS";
+
+  if (
+    includesAny(d, [
+      "filho",
+      "filhos",
+      "família",
+      "familia",
+      "transporte escolar",
+      "mesada",
+      "lazer infantil",
+      "saúde infantil",
+      "saude infantil",
+    ])
+  )
+    return "FAMILIA";
+
+  if (includesAny(d, ["ração", "racao", "veterinario", "veterinário", "banho", "tosa", "pet", "vacina", "medicação pet", "medicacao pet"]))
+    return "PETS";
+
+  if (
+    includesAny(d, [
+      "trabalho",
+      "material profissional",
+      "internet trabalho",
+      "transporte trabalho",
+      "alimentação trabalho",
+      "alimentacao trabalho",
+      "uniforme trabalho",
+    ])
+  )
+    return "TRABALHO";
+
+  if (includesAny(d, ["quebrou", "quebrouu", "conserto", "conserto urgente", "emergência", "emergencia", "manutenção urgente", "manutencao urgente", "urgente"]))
+    return "IMPREVISTOS";
+
+  if (
+    includesAny(d, [
+      "impulso",
+      "eu mereço",
+      "eu mereco",
+      "promoção",
+      "promocao",
+      "por preguiça",
+      "por preguica",
+      "estresse",
+      "stress",
+    ])
+  )
+    return "GASTOS_EMOCIONAIS";
+
+  // fallback: se já é “essencial” mas não bateu em nada, joga em “ESSENCIAIS_OUTROS”
+  if (cat === "essencial") return "ESSENCIAIS_OUTROS";
+
+  return "OUTROS";
+}
+
+function groupLabel(key) {
+  const map = {
+    MORADIA: "🏠 Moradia",
+    TRANSPORTE: "🚗 Transporte",
+    ALIMENTACAO: "🍽️ Alimentação",
+    SAUDE: "💊 Saúde",
+    EDUCACAO: "📚 Educação",
+    VESTUARIO: "👕 Vestuário",
+    LAZER: "🎉 Lazer",
+    FINANCEIRO: "💳 Financeiro",
+    PRESENTES_E_EVENTOS: "🎁 Presentes e eventos",
+    FAMILIA: "🧒 Filhos / família",
+    PETS: "🐶 Pets",
+    TRABALHO: "💼 Trabalho",
+    INVESTIMENTOS: "🏦 Investimentos",
+    IMPREVISTOS: "⚡ Imprevistos",
+    GASTOS_EMOCIONAIS: "🔥 Gastos emocionais",
+    ESSENCIAIS_OUTROS: "🧱 Essenciais (outros)",
+    OUTROS: "📦 Outros",
+  };
+  return map[key] || key;
+}
+
+function blocoEstrategicoFromGroup(groupKey, categoriaRaw = "") {
+  const cat = String(categoriaRaw || "").toLowerCase();
+  if (cat === "burrice" || groupKey === "GASTOS_EMOCIONAIS") return "DESCONTROLE";
+
+  if (groupKey === "FINANCEIRO") return "FINANCEIRO";
+  if (groupKey === "EDUCACAO" || groupKey === "INVESTIMENTOS") return "CRESCIMENTO";
+
+  if (groupKey === "MORADIA" || groupKey === "ALIMENTACAO" || groupKey === "TRANSPORTE" || groupKey === "SAUDE" || groupKey === "ESSENCIAIS_OUTROS")
+    return "ESSENCIAIS";
+
+  if (groupKey === "LAZER" || groupKey === "VESTUARIO" || groupKey === "PETS" || groupKey === "PRESENTES_E_EVENTOS" || groupKey === "FAMILIA")
+    return "QUALIDADE";
+
+  // fallback: pelo campo categoria do app
+  if (cat === "investido") return "CRESCIMENTO";
+  if (cat === "lazer") return "QUALIDADE";
+  if (cat === "essencial") return "ESSENCIAIS";
+
+  return "QUALIDADE";
+}
+
+function blocoLabel(key) {
+  const map = {
+    ESSENCIAIS: "🧱 Essenciais",
+    CRESCIMENTO: "📈 Crescimento",
+    QUALIDADE: "❤️ Qualidade de vida",
+    FINANCEIRO: "⚠️ Financeiro",
+    DESCONTROLE: "🔥 Descontrole",
+  };
+  return map[key] || key;
+}
+
 export default function FinancasPage() {
-  // ✅ pega tudo sem quebrar caso alguma função não exista no contexto
   const finance = useFinance() || {};
 
   const {
@@ -232,7 +529,6 @@ export default function FinancasPage() {
     estudos,
     user,
 
-    // ✅ se existir no seu App.jsx, a gente usa:
     setLembretes,
     salvarLembretes,
     updateLembrete,
@@ -248,7 +544,6 @@ export default function FinancasPage() {
   // ✅ NOVO: modal por item (não por lista)
   const [itemModalOpen, setItemModalOpen] = useState(false);
   const [itemModal, setItemModal] = useState(null);
-  // itemModal = { tipo: "lembrete"|"estudo", id, titulo, when, raw, extra... }
 
   const openItemModal = (payload) => {
     setItemModal(payload);
@@ -259,7 +554,6 @@ export default function FinancasPage() {
     setItemModal(null);
   };
 
-  // ✅ notificações (só pede permissão ao clicar)
   const [notifStatus, setNotifStatus] = useState(
     "Notification" in window ? Notification.permission : "unsupported"
   );
@@ -482,6 +776,7 @@ export default function FinancasPage() {
         descricao: t.descricao || "Sem descrição",
         valor: Number(t.valor || 0),
         categoria: String(t.categoria || "").trim() || "Sem categoria",
+        _fixo: false,
       }));
 
     const fixos = (resumoAtual.gastosFixos || []).map((g) => ({
@@ -542,6 +837,73 @@ export default function FinancasPage() {
       else totalPorCategoria.outras += t.valor;
     });
 
+    // ✅ NOVO: classificação detalhada por grupos + blocos estratégicos
+    const groupsOrder = [
+      "MORADIA",
+      "TRANSPORTE",
+      "ALIMENTACAO",
+      "SAUDE",
+      "EDUCACAO",
+      "VESTUARIO",
+      "LAZER",
+      "FINANCEIRO",
+      "PRESENTES_E_EVENTOS",
+      "FAMILIA",
+      "PETS",
+      "TRABALHO",
+      "INVESTIMENTOS",
+      "IMPREVISTOS",
+      "GASTOS_EMOCIONAIS",
+      "ESSENCIAIS_OUTROS",
+      "OUTROS",
+    ];
+
+    const byGroup = {};
+    const byGroupDesc = {};
+    const blocos = { ESSENCIAIS: 0, CRESCIMENTO: 0, QUALIDADE: 0, FINANCEIRO: 0, DESCONTROLE: 0 };
+
+    for (const it of tudo) {
+      const group = classifyGroup(it.descricao, it.categoria);
+      if (!byGroup[group]) byGroup[group] = 0;
+      byGroup[group] += Number(it.valor || 0);
+
+      // por descrição dentro do grupo
+      const k = group + "::" + normalizarNome(it.descricao);
+      const cur = byGroupDesc[k] || { group, descricao: it.descricao, total: 0, count: 0 };
+      cur.total += Number(it.valor || 0);
+      cur.count += 1;
+      byGroupDesc[k] = cur;
+
+      // blocos estratégicos
+      const bloco = blocoEstrategicoFromGroup(group, it.categoria);
+      if (!blocos[bloco]) blocos[bloco] = 0;
+      blocos[bloco] += Number(it.valor || 0);
+    }
+
+    const groupsList = groupsOrder
+      .map((g) => ({
+        key: g,
+        label: groupLabel(g),
+        total: Number(byGroup[g] || 0),
+        topItens: Object.values(byGroupDesc)
+          .filter((x) => x.group === g)
+          .sort((a, b) => b.total - a.total)
+          .slice(0, 6),
+      }))
+      .filter((g) => g.total > 0);
+
+    const totalMes = sum(tudo) || 1;
+    const blocosList = [
+      { key: "ESSENCIAIS", label: blocoLabel("ESSENCIAIS"), total: Number(blocos.ESSENCIAIS || 0) },
+      { key: "CRESCIMENTO", label: blocoLabel("CRESCIMENTO"), total: Number(blocos.CRESCIMENTO || 0) },
+      { key: "QUALIDADE", label: blocoLabel("QUALIDADE"), total: Number(blocos.QUALIDADE || 0) },
+      { key: "FINANCEIRO", label: blocoLabel("FINANCEIRO"), total: Number(blocos.FINANCEIRO || 0) },
+      { key: "DESCONTROLE", label: blocoLabel("DESCONTROLE"), total: Number(blocos.DESCONTROLE || 0) },
+    ].map((b) => ({
+      ...b,
+      pct: (b.total / totalMes) * 100,
+    }));
+
     return {
       totalMes: sum(tudo),
       totalFood: sum(food),
@@ -552,6 +914,10 @@ export default function FinancasPage() {
       foodPorCategoria,
       totalPorCategoria,
       tudoCount: tudo.length,
+
+      // ✅ NOVO
+      groupsList,
+      blocosList,
     };
   }, [transacoes, mesReferencia, resumoAtual.gastosFixos]);
 
@@ -585,12 +951,10 @@ export default function FinancasPage() {
   async function marcarFeitoAtual() {
     if (!itemModal) return;
 
-    // ===== LEMBRETES =====
     if (itemModal.tipo === "lembrete") {
       const id = itemModal.id;
       const raw = itemModal.raw || {};
 
-      // 1) Se o contexto tiver função, usa
       try {
         if (typeof marcarLembreteComoFeito === "function") {
           await marcarLembreteComoFeito(id);
@@ -598,7 +962,6 @@ export default function FinancasPage() {
           return;
         }
         if (typeof updateLembrete === "function") {
-          // tentativa genérica: updateLembrete(id, patch)
           if (raw.tipo === "avulso") {
             await updateLembrete(id, { done: true });
           } else {
@@ -614,7 +977,6 @@ export default function FinancasPage() {
         }
       } catch {}
 
-      // 2) Fallback localStorage (pwa_lembretes_v1)
       try {
         const list = Array.isArray(lembretesList) ? [...lembretesList] : [];
         const idx = list.findIndex((x) => x && String(x.id) === String(id));
@@ -631,13 +993,9 @@ export default function FinancasPage() {
           }
           list[idx] = it;
 
-          // salva
           localStorage.setItem("pwa_lembretes_v1", JSON.stringify(list));
-
-          // reflete na UI aqui
           setLembretesOverride(list);
 
-          // se tiver setLembretes/salvarLembretes, tenta sincronizar
           try {
             if (typeof setLembretes === "function") setLembretes(list);
             if (typeof salvarLembretes === "function") salvarLembretes(list);
@@ -649,11 +1007,9 @@ export default function FinancasPage() {
       return;
     }
 
-    // ===== ESTUDOS =====
     if (itemModal.tipo === "estudo") {
       const id = itemModal.id;
 
-      // 1) Se o contexto tiver função, usa
       try {
         if (typeof marcarTarefaEstudoComoFeita === "function") {
           await marcarTarefaEstudoComoFeita(id);
@@ -667,7 +1023,6 @@ export default function FinancasPage() {
         }
       } catch {}
 
-      // 2) Fallback: tenta editar a estrutura estudos.tarefas e guardar em localStorage
       try {
         const base = estudosBase && typeof estudosBase === "object" ? { ...estudosBase } : { tarefas: [] };
         const tarefas = Array.isArray(base.tarefas) ? [...base.tarefas] : [];
@@ -676,9 +1031,7 @@ export default function FinancasPage() {
           tarefas[idx] = { ...(tarefas[idx] || {}), status: "feito", feitoEmISO: new Date().toISOString() };
           base.tarefas = tarefas;
 
-          // tenta salvar em LS (caso seu EstudosPage use outro, você pode trocar aqui)
           localStorage.setItem("pwa_estudos_v1", JSON.stringify(base));
-
           setEstudosOverride(base);
 
           try {
@@ -693,7 +1046,7 @@ export default function FinancasPage() {
     }
   }
 
-  /* -------------------- lembretesCompact (agora guarda raw + permite modal por item) -------------------- */
+  /* -------------------- lembretesCompact -------------------- */
   const lembretesCompact = useMemo(() => {
     const list = Array.isArray(lembretesList) ? lembretesList : [];
     const now = new Date();
@@ -752,7 +1105,7 @@ export default function FinancasPage() {
     return { today, todayCount: todayAll.length, upcoming, days, todayAll };
   }, [lembretesList]);
 
-  /* -------------------- estudosCompact (também guarda raw) -------------------- */
+  /* -------------------- estudosCompact -------------------- */
   const estudosCompact = useMemo(() => {
     const tarefas = Array.isArray(estudosBase?.tarefas) ? estudosBase.tarefas : [];
     const now = new Date();
@@ -887,11 +1240,7 @@ export default function FinancasPage() {
       <div className="card resumo-card">
         <div className="resumo-footer">
           {resultadoSalario !== null && (
-            <span
-              className={
-                "badge badge-pill " + (resultadoSalario >= 0 ? "badge-positive" : "badge-negative")
-              }
-            >
+            <span className={"badge badge-pill " + (resultadoSalario >= 0 ? "badge-positive" : "badge-negative")}>
               {resultadoSalario >= 0 ? "Sobrou" : "Faltou"} {formatCurrency(Math.abs(resultadoSalario))}
             </span>
           )}
@@ -932,7 +1281,6 @@ export default function FinancasPage() {
                   )}
                 </div>
 
-                {/* ✅ Botão de notificações */}
                 <div style={{ marginTop: 8 }}>
                   {notifStatus === "granted" ? (
                     <span className="badge badge-pill badge-positive">🔔 Notificações ativas</span>
@@ -955,7 +1303,6 @@ export default function FinancasPage() {
                 </div>
               </div>
 
-              {/* dots semana - lembretes + estudos (somado) */}
               <div style={{ display: "flex", gap: 6, alignItems: "flex-end", flexWrap: "nowrap" }}>
                 {Array.from({ length: 7 }).map((_, idx) => {
                   const d = addDays(startOfDay(new Date()), idx);
@@ -993,24 +1340,9 @@ export default function FinancasPage() {
               </div>
             </div>
 
-            {/* ✅ SÓ TÍTULOS + MODAL */}
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap: 10,
-                marginTop: 10,
-              }}
-            >
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
               {/* LEMBRETES */}
-              <div
-                className="card"
-                style={{
-                  padding: 10,
-                  background: "rgba(255,255,255,.02)",
-                  border: "1px solid rgba(255,255,255,.08)",
-                }}
-              >
+              <div className="card" style={{ padding: 10, background: "rgba(255,255,255,.02)", border: "1px solid rgba(255,255,255,.08)" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontWeight: 800, fontSize: 14 }}>📌 Lembretes</div>
@@ -1043,15 +1375,7 @@ export default function FinancasPage() {
                         }
                         title="Clique para ver detalhes"
                       >
-                        <span
-                          style={{
-                            minWidth: 0,
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                            fontWeight: 800,
-                          }}
-                        >
+                        <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 800 }}>
                           {t.titulo}
                         </span>
                       </li>
@@ -1061,14 +1385,7 @@ export default function FinancasPage() {
               </div>
 
               {/* ESTUDOS */}
-              <div
-                className="card"
-                style={{
-                  padding: 10,
-                  background: "rgba(255,255,255,.02)",
-                  border: "1px solid rgba(255,255,255,.08)",
-                }}
-              >
+              <div className="card" style={{ padding: 10, background: "rgba(255,255,255,.02)", border: "1px solid rgba(255,255,255,.08)" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontWeight: 800, fontSize: 14 }}>📚 Estudos</div>
@@ -1107,15 +1424,7 @@ export default function FinancasPage() {
                           }
                           title="Clique para ver detalhes"
                         >
-                          <span
-                            style={{
-                              minWidth: 0,
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              whiteSpace: "nowrap",
-                              fontWeight: 800,
-                            }}
-                          >
+                          <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 800 }}>
                             {title}
                           </span>
                         </li>
@@ -1135,9 +1444,7 @@ export default function FinancasPage() {
         <div className="modal-overlay" onClick={closeItemModal}>
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
             <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
-              <h3 style={{ margin: 0 }}>
-                {itemModal.tipo === "lembrete" ? "📌 Lembrete" : "📚 Estudo"}
-              </h3>
+              <h3 style={{ margin: 0 }}>{itemModal.tipo === "lembrete" ? "📌 Lembrete" : "📚 Estudo"}</h3>
               <button className="toggle-btn" type="button" onClick={closeItemModal}>
                 Fechar
               </button>
@@ -1292,12 +1599,7 @@ export default function FinancasPage() {
 
       {/* CATEGORIAS / SEMANAS */}
       <div className="grid-2 mt">
-        <div
-          className="card"
-          onClick={() => setModalCategorias(true)}
-          style={{ cursor: "pointer" }}
-          title="Clique para abrir detalhes"
-        >
+        <div className="card" onClick={() => setModalCategorias(true)} style={{ cursor: "pointer" }} title="Clique para abrir detalhes">
           <h3>Gasto por categoria</h3>
           <div className="pizza-chart-wrapper">
             <div className="pizza-chart" style={pizzaStyle} />
@@ -1310,12 +1612,10 @@ export default function FinancasPage() {
               <span className="legend-color legend-leisure" /> Lazer ({resumoAtual.pLazer.toFixed(0)}%)
             </div>
             <div className="legend-item">
-              <span className="legend-color" style={{ background: "#F59E0B" }} /> Burrice (
-              {(resumoAtual.pBurrice || 0).toFixed(0)}%)
+              <span className="legend-color" style={{ background: "#F59E0B" }} /> Burrice ({(resumoAtual.pBurrice || 0).toFixed(0)}%)
             </div>
             <div className="legend-item">
-              <span className="legend-color" style={{ background: "#10B981" }} /> Investido (
-              {(resumoAtual.pInvestido || 0).toFixed(0)}%)
+              <span className="legend-color" style={{ background: "#10B981" }} /> Investido ({(resumoAtual.pInvestido || 0).toFixed(0)}%)
             </div>
             <p className="muted small" style={{ marginTop: 8 }}>
               (Clique para abrir detalhes)
@@ -1323,12 +1623,7 @@ export default function FinancasPage() {
           </div>
         </div>
 
-        <div
-          className="card"
-          onClick={() => setModalCategorias(true)}
-          style={{ cursor: "pointer" }}
-          title="Clique para abrir detalhes"
-        >
+        <div className="card" onClick={() => setModalCategorias(true)} style={{ cursor: "pointer" }} title="Clique para abrir detalhes">
           <h3>Gastos por semana</h3>
           <div className="weeks-grid">
             {resumoAtual.semanas.map((v, i) => {
@@ -1369,6 +1664,77 @@ export default function FinancasPage() {
               {nomeMes} / {mesReferencia?.ano ?? new Date().getFullYear()}
             </p>
 
+            {/* ✅ NOVO: VISÃO ESTRATÉGICA (5 blocos) */}
+            <div className="card" style={{ marginTop: 10 }}>
+              <h4 style={{ marginBottom: 8 }}>💡 Visão estratégica</h4>
+              <p className="muted small" style={{ marginTop: 0 }}>
+                (Divide seus gastos em 5 blocos: essenciais, crescimento, qualidade, financeiro e descontrole.)
+              </p>
+
+              <ul className="list" style={{ marginTop: 8 }}>
+                {(detalhesCategorias.blocosList || []).map((b) => (
+                  <li key={b.key} className="list-item">
+                    <span>
+                      {b.label}{" "}
+                      <span className="muted small">· {b.pct ? b.pct.toFixed(0) : "0"}%</span>
+                    </span>
+                    <span>{formatCurrency(b.total)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {/* ✅ NOVO: CATEGORIAS DETALHADAS (MORADIA, TRANSPORTE, etc.) */}
+            <div className="card" style={{ marginTop: 10 }}>
+              <h4 style={{ marginBottom: 8 }}>🧭 Categorias detalhadas</h4>
+              <p className="muted small" style={{ marginTop: 0 }}>
+                (Classificação automática por palavras-chave + sua categoria do app.)
+              </p>
+
+              {(detalhesCategorias.groupsList || []).length === 0 ? (
+                <p className="muted small">Sem dados suficientes para classificar.</p>
+              ) : (
+                <div style={{ display: "grid", gap: 10 }}>
+                  {(detalhesCategorias.groupsList || []).map((g) => (
+                    <div key={g.key} className="card" style={{ background: "rgba(255,255,255,.02)", border: "1px solid rgba(255,255,255,.08)" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                        <span>
+                          <b>{g.label}</b>
+                        </span>
+                        <span>
+                          <b>{formatCurrency(g.total)}</b>
+                        </span>
+                      </div>
+
+                      {Array.isArray(g.topItens) && g.topItens.length > 0 ? (
+                        <>
+                          <p className="muted small" style={{ marginTop: 8 }}>
+                            Top itens:
+                          </p>
+                          <ul className="list" style={{ marginTop: 6 }}>
+                            {g.topItens.map((x, idx) => (
+                              <li key={idx} className="list-item">
+                                <span>
+                                  {x.descricao}{" "}
+                                  {x.count > 1 ? <span className="muted small"> · {x.count}x</span> : null}
+                                </span>
+                                <span>{formatCurrency(x.total)}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </>
+                      ) : (
+                        <p className="muted small" style={{ marginTop: 8 }}>
+                          (Sem itens detalhados.)
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* ✅ O QUE JÁ EXISTIA (mantido) */}
             <div className="card" style={{ marginTop: 10 }}>
               <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
                 <span>
