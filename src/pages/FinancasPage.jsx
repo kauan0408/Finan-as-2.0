@@ -593,6 +593,58 @@ export default function FinancasPage() {
   const [estudosOverride, setEstudosOverride] = useState(null);
   const estudosBase = estudosOverride || estudos || null;
 
+  /* -------------------- ✅ NAVEGAÇÃO ROBUSTA (URL + contexto do App) -------------------- */
+  function smartNavigateTo(path) {
+    const raw = String(path || "/");
+    const clean = raw
+      .replace(/^#/, "")
+      .replace(/^\//, "")
+      .split("?")[0]
+      .split("#")[0]
+      .trim()
+      .toLowerCase();
+
+    const key = clean.split("/")[0] || "";
+
+    // tenta navegar via funções do seu contexto (se existirem)
+    const candidates = [
+      "navigate",
+      "navegar",
+      "goTo",
+      "goto",
+      "irPara",
+      "irParaPagina",
+      "setPage",
+      "setPagina",
+      "setPaginaAtual",
+      "setCurrentPage",
+      "setActivePage",
+      "setTab",
+      "setAba",
+      "setAbaAtual",
+      "setActiveTab",
+      "setTela",
+      "setTelaAtual",
+    ];
+
+    for (const fnName of candidates) {
+      try {
+        const fn = finance?.[fnName];
+        if (typeof fn === "function") {
+          // tenta com chave (ex: "lembretes") e também com path (ex: "/lembretes")
+          try { fn(key); } catch {}
+          try { fn("/" + key); } catch {}
+          try { fn(raw); } catch {}
+          // se qualquer uma funcionar, a tela troca no seu App
+          return;
+        }
+      } catch {}
+    }
+
+    // fallback: navega pela URL (hash/browser)
+    safeNavigateTo("/" + key);
+  }
+
   /* -------------------- ✅ AÇÕES: marcar como feito (com refletir nas abas) -------------------- */
   async function marcarFeitoAtual() {
     if (!itemModal) return;
@@ -1031,7 +1083,7 @@ export default function FinancasPage() {
                       Hoje: <b>{lembretesCompact.todayCount}</b>
                     </div>
                   </div>
-                  <button className="toggle-btn" type="button" onClick={() => safeNavigateTo("/lembretes")}>
+                  <button className="toggle-btn" type="button" onClick={() => smartNavigateTo("/lembretes")}>
                     Abrir
                   </button>
                 </div>
@@ -1092,7 +1144,7 @@ export default function FinancasPage() {
                       Hoje (pendente): <b>{estudosCompact.todayPendingCount}</b>
                     </div>
                   </div>
-                  <button className="toggle-btn" type="button" onClick={() => safeNavigateTo("/estudos")}>
+                  <button className="toggle-btn" type="button" onClick={() => smartNavigateTo("/estudos")}>
                     Abrir
                   </button>
                 </div>
@@ -1224,7 +1276,7 @@ export default function FinancasPage() {
               <button
                 className="toggle-btn toggle-active"
                 type="button"
-                onClick={() => safeNavigateTo(itemModal.tipo === "lembrete" ? "/lembretes" : "/estudos")}
+                onClick={() => smartNavigateTo(itemModal.tipo === "lembrete" ? "/lembretes" : "/estudos")}
               >
                 Ir para página
               </button>
