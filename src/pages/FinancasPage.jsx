@@ -31,7 +31,6 @@ function calcularProximoPagamento(diaPagamento) {
 
   const diffMs = proximo - hoje;
   const diffDias = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-
   return { data: proximo, diasRestantes: diffDias };
 }
 
@@ -39,7 +38,6 @@ function getValorFixo(valoresPorMes = {}, chaveMes) {
   if (valoresPorMes && valoresPorMes[chaveMes] != null) {
     return Number(valoresPorMes[chaveMes]);
   }
-
   const meses = Object.keys(valoresPorMes || {}).sort();
   let ultimo = null;
   for (const m of meses) {
@@ -99,7 +97,6 @@ function isFood(desc) {
   ];
   return keys.some((k) => d.includes(normalizeText(k)));
 }
-
 function isTransport(desc) {
   const d = normalizeText(desc);
   const keys = ["uber", "99", "taxi", "táxi", "onibus", "ônibus", "passagem", "transporte", "corrida"];
@@ -110,7 +107,6 @@ function isTransport(desc) {
 function monthKey(ano, mes0) {
   return `${ano}-${String(mes0 + 1).padStart(2, "0")}`;
 }
-
 function prevMonth(ano, mes0) {
   let y = ano;
   let m = mes0 - 1;
@@ -121,35 +117,29 @@ function prevMonth(ano, mes0) {
   return { ano: y, mes: m };
 }
 
-/* -------------------- ✅ helpers para lembretes (compacto) -------------------- */
-
+/* -------------------- ✅ helpers para lembretes + estudos (compacto) -------------------- */
 function pad2(n) {
   return String(n).padStart(2, "0");
 }
-
 function toLocalDateKey(d = new Date()) {
   const x = new Date(d);
   return `${x.getFullYear()}-${pad2(x.getMonth() + 1)}-${pad2(x.getDate())}`;
 }
-
 function startOfDay(dateObj) {
   const d = new Date(dateObj);
   d.setHours(0, 0, 0, 0);
   return d;
 }
-
 function endOfDay(dateObj) {
   const d = new Date(dateObj);
   d.setHours(23, 59, 59, 999);
   return d;
 }
-
 function addDays(dateObj, days) {
   const d = new Date(dateObj);
   d.setDate(d.getDate() + Number(days || 0));
   return d;
 }
-
 function parseLocalDateTime(v) {
   try {
     const [datePart, timePart] = String(v || "").split("T");
@@ -162,7 +152,6 @@ function parseLocalDateTime(v) {
     return null;
   }
 }
-
 function fmtShortBR(d) {
   try {
     const x = new Date(d);
@@ -172,7 +161,6 @@ function fmtShortBR(d) {
     return "";
   }
 }
-
 function fmtTimeHHmm(d) {
   try {
     const x = new Date(d);
@@ -201,7 +189,6 @@ function safeNavigateTo(path) {
 }
 
 /* -------------------- ✅ classificação por CLASSE (7 grupos) -------------------- */
-
 const CLASSES_GASTOS = [
   { key: "essenciais", label: "ESSENCIAIS" },
   { key: "financeiro", label: "FINANCEIRO" },
@@ -405,7 +392,26 @@ function classificarClassePorDescricao(descricao) {
   return "essenciais";
 }
 
-/* ---------------------------------------------------------------------------------------- */
+/* ----------------------------------------------------------------------------------------------------------- */
+/* ✅ Notificação topo (usa SW se tiver; senão Notification) */
+async function showTopBarNotification(title, body, tag = "finance-agenda") {
+  if (!("Notification" in window)) return;
+  if (Notification.permission !== "granted") return;
+
+  try {
+    if ("serviceWorker" in navigator) {
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (reg && reg.showNotification) {
+        await reg.showNotification(title, { body, tag, renotify: true });
+        return;
+      }
+    }
+  } catch {}
+
+  try {
+    new Notification(title, { body });
+  } catch {}
+}
 
 export default function FinancasPage() {
   const {
@@ -414,7 +420,9 @@ export default function FinancasPage() {
     mesReferencia,
     mudarMesReferencia,
     irParaMesAtual,
-    lembretes, // ✅ puxar lembretes do contexto do app
+    lembretes, // ✅ lembretes do contexto
+    estudos, // ✅ estudos do contexto (tarefas)
+    user, // ✅ para chave localStorage por usuário (se existir no seu contexto)
   } = useFinance();
 
   const [modalCategorias, setModalCategorias] = useState(false);
@@ -432,12 +440,9 @@ export default function FinancasPage() {
     try {
       const perm = await Notification.requestPermission();
       setNotifStatus(perm);
-
       if (perm === "granted") {
         // teste simples
-        new Notification("🔔 Notificações ativadas!", {
-          body: "Agora você pode receber avisos dos seus lembretes.",
-        });
+        await showTopBarNotification("🔔 Notificações ativadas!", "Agora você pode receber avisos do seu dia.");
       }
     } catch {
       alert("Não consegui ativar notificações. Verifique as permissões do navegador.");
@@ -445,7 +450,6 @@ export default function FinancasPage() {
   }
 
   const salariosPorMes = profile?.salariosPorMes || {};
-
   function getSalarioMes(ano, mes0) {
     const k = monthKey(ano, mes0);
     return Number(salariosPorMes[k] ?? profile?.rendaMensal ?? 0);
@@ -456,7 +460,6 @@ export default function FinancasPage() {
       let receitas = 0;
       let despesasTransacoes = 0;
       let gastosCartao = 0;
-
       let categorias = { essencial: 0, lazer: 0, burrice: 0, investido: 0 };
       const semanas = [0, 0, 0, 0];
 
@@ -479,19 +482,15 @@ export default function FinancasPage() {
 
       transacoes.forEach((t) => {
         const dt = new Date(t.dataHora);
-
         if (dt.getMonth() === mes0 && dt.getFullYear() === ano) {
           const valor = Number(t.valor || 0);
-
           if (t.tipo === "receita") {
             receitas += valor;
           } else if (t.tipo === "despesa") {
             despesasTransacoes += valor;
-
             if (t.formaPagamento === "credito") {
               gastosCartao += valor;
             }
-
             const cat = (t.categoria || "").toLowerCase();
             if (cat === "essencial") categorias.essencial += valor;
             if (cat === "lazer") categorias.lazer += valor;
@@ -506,7 +505,6 @@ export default function FinancasPage() {
       });
 
       const totalGastosFixos = gastosFixosPerfil.reduce((acc, g) => acc + Number(g.valor || 0), 0);
-
       const despesas = despesasTransacoes + totalGastosFixos;
 
       gastosFixosPerfil.forEach((g) => {
@@ -527,12 +525,10 @@ export default function FinancasPage() {
         if (t.tipo === "despesa" && dt.getMonth() === mes0 && dt.getFullYear() === ano) {
           const v = Number(t.valor || 0);
           if (!v) return;
-
           const key = normalizarNome(t.descricao || "Sem descrição");
           const atual = mapa.get(key) || { descricao: t.descricao || "Sem descrição", valor: 0, count: 0 };
           atual.valor += v;
           atual.count += 1;
-
           if ((!atual.descricao || atual.descricao === "Sem descrição") && t.descricao) {
             atual.descricao = t.descricao;
           }
@@ -584,25 +580,19 @@ export default function FinancasPage() {
     const pendenteAnterior = saldoPrevComSalario < 0 ? Math.abs(saldoPrevComSalario) : 0;
 
     return { resumoAtual, pendenteAnterior };
-  }, [
-    transacoes,
-    mesReferencia,
-    profile?.gastosFixos,
-    profile?.rendaMensal,
-    profile?.salariosPorMes,
-  ]);
+  }, [transacoes, mesReferencia, profile?.gastosFixos, profile?.rendaMensal, profile?.salariosPorMes]);
 
   const { resumoAtual, pendenteAnterior } = resumo;
 
   const chaveMesAtual = monthKey(mesReferencia.ano, mesReferencia.mes);
   const salarioFixo = Number((profile?.salariosPorMes || {})[chaveMesAtual] ?? profile?.rendaMensal ?? 0);
-
   const limiteGastoMensal = Number(profile?.limiteGastoMensal || 0);
 
   const diaPagamento = profile?.diaPagamento || "";
   const proximoPag = diaPagamento ? calcularProximoPagamento(diaPagamento) : null;
 
-  const resultadoSalario = salarioFixo > 0 ? salarioFixo - resumoAtual.despesas - pendenteAnterior : null;
+  const resultadoSalario =
+    salarioFixo > 0 ? salarioFixo - resumoAtual.despesas - pendenteAnterior : null;
 
   const saldoComSalario =
     salarioFixo > 0
@@ -726,7 +716,6 @@ export default function FinancasPage() {
     tudo.forEach((t) => {
       const classeKey = classificarClassePorDescricao(t.descricao);
       const bucket = porClasse.get(classeKey) || porClasse.get("essenciais");
-
       const v = Number(t.valor || 0);
       bucket.total += v;
 
@@ -734,7 +723,6 @@ export default function FinancasPage() {
       const cur = bucket.itemsMap.get(k) || { descricao: t.descricao, total: 0, count: 0 };
       cur.total += v;
       cur.count += 1;
-
       if ((!cur.descricao || cur.descricao === "Sem descrição") && t.descricao) cur.descricao = t.descricao;
       bucket.itemsMap.set(k, cur);
     });
@@ -760,9 +748,9 @@ export default function FinancasPage() {
     };
   }, [transacoes, mesReferencia, resumoAtual.gastosFixos]);
 
-  /* -------------------- lembretes compactos -------------------- */
-
+  /* -------------------- lembretes (compacto) + fallback -------------------- */
   const [lembretesFallback, setLembretesFallback] = useState([]);
+
   useEffect(() => {
     try {
       if (Array.isArray(lembretes) && lembretes.length) return;
@@ -776,7 +764,6 @@ export default function FinancasPage() {
 
   const lembretesCompact = useMemo(() => {
     const list = Array.isArray(lembretesList) ? lembretesList : [];
-
     const now = new Date();
     const from = startOfDay(now);
     const to = endOfDay(now);
@@ -817,10 +804,120 @@ export default function FinancasPage() {
       return { key, date: d, count };
     });
 
-    return { today: today.slice(0, 3), todayCount: today.length, upcoming, days };
+    return { today: today.slice(0, 3), todayCount: today.length, upcoming, days, todayAll: today };
   }, [lembretesList]);
 
-  /* ----------------------------------------------------------------------------------------------------------- */
+  /* -------------------- estudos (compacto) -------------------- */
+  const estudosCompact = useMemo(() => {
+    const tarefas = Array.isArray(estudos?.tarefas) ? estudos.tarefas : [];
+    const now = new Date();
+    const from = startOfDay(now);
+    const to = endOfDay(now);
+    const todayKey = toLocalDateKey(now);
+
+    const all = tarefas
+      .filter((t) => t && t.ymd)
+      .map((t) => ({
+        id: t.id,
+        ymd: String(t.ymd),
+        hora: String(t.hora || ""),
+        materia: String(t.materia || "Estudos"),
+        conteudo: String(t.conteudo || ""),
+        status: String(t.status || "pendente"),
+        minutos: Number(t.minutos || 0),
+        tipo: String(t.tipo || "conteudo"),
+        nota: String(t.nota || ""),
+      }));
+
+    const todayAll = all
+      .filter((t) => t.ymd === todayKey)
+      .sort((a, b) => (a.hora || "99:99").localeCompare(b.hora || "99:99"));
+
+    const todayPending = todayAll.filter((t) => t.status !== "feito");
+    const todayDone = todayAll.filter((t) => t.status === "feito");
+
+    // próximos (até 7 dias) - só PENDENTES
+    const next7 = [];
+    for (let i = 0; i < 7; i++) {
+      const d = addDays(from, i);
+      const key = toLocalDateKey(d);
+      const itens = all
+        .filter((t) => t.ymd === key && t.status !== "feito")
+        .sort((a, b) => (a.hora || "99:99").localeCompare(b.hora || "99:99"));
+      next7.push({ key, date: d, count: itens.length, itens: itens.slice(0, 6) });
+    }
+
+    // "upcoming" (depois de hoje) próximos 6 pendentes
+    const afterToday = all
+      .filter((t) => t.status !== "feito")
+      .filter((t) => {
+        const dt = new Date(t.ymd + "T00:00:00");
+        if (Number.isNaN(dt.getTime())) return false;
+        return dt.getTime() > to.getTime();
+      })
+      .sort((a, b) => {
+        const ad = String(a.ymd || "");
+        const bd = String(b.ymd || "");
+        if (ad !== bd) return ad.localeCompare(bd);
+        return (a.hora || "99:99").localeCompare(b.hora || "99:99");
+      })
+      .slice(0, 6);
+
+    return {
+      todayAll,
+      todayPending: todayPending.slice(0, 3),
+      todayPendingCount: todayPending.length,
+      todayDoneCount: todayDone.length,
+      days: next7.map((x) => ({ key: x.key, date: x.date, count: x.count })),
+      upcoming: afterToday,
+      todayKey,
+    };
+  }, [estudos]);
+
+  /* -------------------- ✅ Notificação ao abrir o app (Finanças): Lembretes + Estudos (1x por dia) -------------------- */
+  useEffect(() => {
+    // não pede permissão sozinho
+    if (!("Notification" in window)) return;
+    if (Notification.permission !== "granted") return;
+
+    const todayKey = toLocalDateKey(new Date());
+    const keyLS = user?.uid ? `pwa_fin_today_notif_${user.uid}` : "pwa_fin_today_notif_local";
+    const last = localStorage.getItem(keyLS) || "";
+    if (last === todayKey) return;
+
+    const lembHoje = (lembretesCompact.todayAll || []).length;
+    const estHoje = Number(estudosCompact.todayPendingCount || 0);
+
+    if (lembHoje <= 0 && estHoje <= 0) return;
+
+    const lines = [];
+
+    if (lembHoje > 0) {
+      const top = (lembretesCompact.todayAll || [])
+        .slice(0, 6)
+        .map((t) => `• ${t.titulo}${t.when ? ` (${fmtTimeHHmm(t.when)})` : ""}`);
+      lines.push(`📌 Lembretes hoje: ${lembHoje}`);
+      lines.push(...top);
+    }
+
+    if (estHoje > 0) {
+      const top = (estudosCompact.todayAll || [])
+        .filter((t) => t.status !== "feito")
+        .slice(0, 6)
+        .map((t) => `• ${t.hora ? t.hora + " " : ""}${t.materia}: ${t.conteudo}`.trim());
+      if (lines.length) lines.push(""); // separador
+      lines.push(`📚 Estudos hoje: ${estHoje}`);
+      lines.push(...top);
+    }
+
+    const body = lines.join("\n").slice(0, 900); // evita body gigante
+    showTopBarNotification("✅ Seu dia (Finanças)", body, "financas-dia");
+
+    try {
+      localStorage.setItem(keyLS, todayKey);
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lembretesCompact.todayCount, estudosCompact.todayPendingCount, notifStatus]);
 
   return (
     <div className="page">
@@ -831,16 +928,13 @@ export default function FinancasPage() {
         <h3>
           {nomeMes} / {mesReferencia.ano}
         </h3>
-
         <div style={{ display: "flex", justifyContent: "space-between", marginTop: 10 }}>
           <button className="toggle-btn" onClick={() => mudarMesReferencia(-1)}>
             ◀ Mês anterior
           </button>
-
           <button className="toggle-btn toggle-active" onClick={irParaMesAtual}>
             ● Atual
           </button>
-
           <button className="toggle-btn" onClick={() => mudarMesReferencia(1)}>
             Próximo mês ▶
           </button>
@@ -851,85 +945,53 @@ export default function FinancasPage() {
       <div className="card resumo-card">
         <div className="resumo-footer">
           {resultadoSalario !== null && (
-            <span className={"badge badge-pill " + (resultadoSalario >= 0 ? "badge-positive" : "badge-negative")}>
+            <span
+              className={
+                "badge badge-pill " + (resultadoSalario >= 0 ? "badge-positive" : "badge-negative")
+              }
+            >
               {resultadoSalario >= 0 ? "Sobrou" : "Faltou"} {formatCurrency(Math.abs(resultadoSalario))}
             </span>
           )}
         </div>
 
-        {/* pill do Dia/Próx + pendente */}
-        {pendenteAnterior > 0 && (
-          <div
-            style={{
-              marginTop: 10,
-              display: "flex",
-              gap: 8,
-              alignItems: "center",
-              justifyContent: "space-between",
-              flexWrap: "wrap",
-            }}
-          >
-            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-              <span className="badge badge-pill badge-negative">
-                Pendente do mês anterior: {formatCurrency(pendenteAnterior)}
-              </span>
-
-              {diaPagamento ? (
-                <span className="pill" style={{ padding: "8px 10px" }}>
-                  <span>Dia {diaPagamento}</span>
-                  {proximoPag && (
-                    <span className="pill-sub" style={{ marginLeft: 8 }}>
-                      Próx. em {proximoPag.diasRestantes} dia(s)
-                    </span>
-                  )}
-                </span>
-              ) : null}
-            </div>
-          </div>
-        )}
-
-        {pendenteAnterior <= 0 && (
-          <div style={{ marginTop: 10, display: "flex", justifyContent: "flex-end" }}>
-            <div className="pill">
-              {diaPagamento ? (
-                <>
-                  <span>Dia {diaPagamento}</span>
-                  {proximoPag && <span className="pill-sub">Próx. em {proximoPag.diasRestantes} dia(s)</span>}
-                </>
-              ) : (
-                <span>Sem dia definido</span>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Lembretes */}
-        <div style={{ marginTop: 12 }}>
+        {/* ✅ AQUI FOI TROCADO: agora mostra AGENDA (Lembretes + Estudos) no lugar do bloco antigo */}
+        <div style={{ marginTop: 10 }}>
           <div
             className="card"
-            role="button"
-            tabIndex={0}
-            onClick={() => safeNavigateTo("/lembretes")}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") safeNavigateTo("/lembretes");
-            }}
             style={{
               padding: 10,
               background: "rgba(255,255,255,.03)",
               border: "1px solid rgba(255,255,255,.08)",
-              cursor: "pointer",
             }}
-            title="Clique para abrir Lembretes"
           >
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontWeight: 800, fontSize: 14 }}>📌 Lembretes</div>
-                <div className="muted small" style={{ marginTop: 2 }}>
-                  Hoje: <b>{lembretesCompact.todayCount}</b>
-                  {lembretesCompact.todayCount > 3 ? " (mostrando 3)" : ""}
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+              <div style={{ minWidth: 240 }}>
+                <div style={{ fontWeight: 900, fontSize: 14 }}>📅 Agenda da semana</div>
+
+                {/* linha pequena com pagamento + pendente (não é mais o bloco principal) */}
+                <div className="muted small" style={{ marginTop: 4 }}>
+                  {pendenteAnterior > 0 ? (
+                    <>
+                      <b>Pendente:</b> {formatCurrency(pendenteAnterior)}{" "}
+                    </>
+                  ) : (
+                    <>
+                      <b>Pendente:</b> R$ 0,00{" "}
+                    </>
+                  )}
+                  {" • "}
+                  {diaPagamento ? (
+                    <>
+                      <b>Dia {diaPagamento}</b>
+                      {proximoPag ? <> • Próx. em {proximoPag.diasRestantes} dia(s)</> : null}
+                    </>
+                  ) : (
+                    <>Sem dia definido</>
+                  )}
                 </div>
 
-                {/* ✅ BOTÃO: Ativar notificações (só pede permissão ao clicar) */}
+                {/* ✅ Botão de notificações */}
                 <div style={{ marginTop: 8 }}>
                   {notifStatus === "granted" ? (
                     <span className="badge badge-pill badge-positive">🔔 Notificações ativas</span>
@@ -940,7 +1002,7 @@ export default function FinancasPage() {
                       className="toggle-btn"
                       onClick={(e) => {
                         e.preventDefault();
-                        e.stopPropagation(); // não abre a página de lembretes ao clicar no botão
+                        e.stopPropagation();
                         ativarNotificacoes();
                       }}
                       type="button"
@@ -952,16 +1014,23 @@ export default function FinancasPage() {
                 </div>
               </div>
 
+              {/* dots semana - lembretes + estudos (somado) */}
               <div style={{ display: "flex", gap: 6, alignItems: "flex-end", flexWrap: "nowrap" }}>
-                {lembretesCompact.days.map((d, idx) => {
+                {Array.from({ length: 7 }).map((_, idx) => {
+                  const d = addDays(startOfDay(new Date()), idx);
+                  const key = toLocalDateKey(d);
+
+                  const lembCount = (lembretesCompact.days || []).find((x) => x.key === key)?.count || 0;
+                  const estCount = (estudosCompact.days || []).find((x) => x.key === key)?.count || 0;
+
+                  const count = lembCount + estCount;
                   const isToday = idx === 0;
-                  const count = d.count || 0;
                   const dotOpacity = count ? 1 : 0.25;
 
                   return (
                     <div
-                      key={d.key}
-                      title={`${fmtShortBR(d.date)} • ${count} lembrete(s)`}
+                      key={key}
+                      title={`${fmtShortBR(d)} • ${count} (📌 ${lembCount} + 📚 ${estCount})`}
                       style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 34 }}
                     >
                       <div
@@ -975,7 +1044,7 @@ export default function FinancasPage() {
                         }}
                       />
                       <div className="muted small" style={{ marginTop: 4, fontSize: 11 }}>
-                        {fmtShortBR(d.date)}
+                        {fmtShortBR(d)}
                       </div>
                     </div>
                   );
@@ -983,41 +1052,148 @@ export default function FinancasPage() {
               </div>
             </div>
 
-            {lembretesCompact.today.length === 0 ? (
-              <div className="muted small" style={{ marginTop: 8 }}>
-                Nada para hoje 🎉
-              </div>
-            ) : (
-              <ul className="list" style={{ marginTop: 8 }}>
-                {lembretesCompact.today.map((t) => (
-                  <li key={t.id} className="list-item" style={{ padding: "8px 10px" }}>
-                    <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {t.titulo}{" "}
-                      <span className="muted small" style={{ fontWeight: 600 }}>
-                        • {t.tipo === "recorrente" ? "recorrente" : "avulso"}
-                      </span>
-                    </span>
-                    <span className="muted small" style={{ whiteSpace: "nowrap" }}>
-                      {fmtTimeHHmm(t.when)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
+            {/* ✅ GRID: Lembretes + Estudos */}
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: 10,
+                marginTop: 10,
+              }}
+            >
+              {/* LEMBRETES */}
+              <div
+                className="card"
+                role="button"
+                tabIndex={0}
+                onClick={() => safeNavigateTo("/lembretes")}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") safeNavigateTo("/lembretes");
+                }}
+                style={{
+                  padding: 10,
+                  background: "rgba(255,255,255,.02)",
+                  border: "1px solid rgba(255,255,255,.08)",
+                  cursor: "pointer",
+                }}
+                title="Clique para abrir Lembretes"
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 800, fontSize: 14 }}>📌 Lembretes</div>
+                    <div className="muted small" style={{ marginTop: 2 }}>
+                      Hoje: <b>{lembretesCompact.todayCount}</b>
+                      {lembretesCompact.todayCount > 3 ? " (mostrando 3)" : ""}
+                    </div>
+                  </div>
+                </div>
 
-            {lembretesCompact.upcoming.length > 0 && (
-              <div className="muted small" style={{ marginTop: 8, lineHeight: 1.35 }}>
-                Próximos:{" "}
-                {lembretesCompact.upcoming.slice(0, 3).map((u, idx) => (
-                  <span key={u.id}>
-                    <b>{fmtShortBR(u.when)}</b> {fmtTimeHHmm(u.when)} — {u.titulo}
-                    {idx < Math.min(3, lembretesCompact.upcoming.length) - 1 ? " • " : ""}
-                  </span>
-                ))}
+                {lembretesCompact.today.length === 0 ? (
+                  <div className="muted small" style={{ marginTop: 8 }}>
+                    Nada para hoje 🎉
+                  </div>
+                ) : (
+                  <ul className="list" style={{ marginTop: 8 }}>
+                    {lembretesCompact.today.map((t) => (
+                      <li key={t.id} className="list-item" style={{ padding: "8px 10px" }}>
+                        <span
+                          style={{
+                            minWidth: 0,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {t.titulo}{" "}
+                          <span className="muted small" style={{ fontWeight: 600 }}>
+                            • {t.tipo === "recorrente" ? "recorrente" : "avulso"}
+                          </span>
+                        </span>
+                        <span className="muted small" style={{ whiteSpace: "nowrap" }}>
+                          {fmtTimeHHmm(t.when)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                {lembretesCompact.upcoming.length > 0 && (
+                  <div className="muted small" style={{ marginTop: 8, lineHeight: 1.35 }}>
+                    Próximos:{" "}
+                    {lembretesCompact.upcoming.slice(0, 3).map((u, idx) => (
+                      <span key={u.id}>
+                        <b>{fmtShortBR(u.when)}</b> {fmtTimeHHmm(u.when)} — {u.titulo}
+                        {idx < Math.min(3, lembretesCompact.upcoming.length) - 1 ? " • " : ""}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
-            )}
+
+              {/* ESTUDOS */}
+              <div
+                className="card"
+                role="button"
+                tabIndex={0}
+                onClick={() => safeNavigateTo("/estudos")}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") safeNavigateTo("/estudos");
+                }}
+                style={{
+                  padding: 10,
+                  background: "rgba(255,255,255,.02)",
+                  border: "1px solid rgba(255,255,255,.08)",
+                  cursor: "pointer",
+                }}
+                title="Clique para abrir Estudos"
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 800, fontSize: 14 }}>📚 Estudos</div>
+                    <div className="muted small" style={{ marginTop: 2 }}>
+                      Hoje (pendente): <b>{estudosCompact.todayPendingCount}</b>
+                      {estudosCompact.todayPendingCount > 3 ? " (mostrando 3)" : ""}
+                      {" • "}
+                      Feitos: <b>{estudosCompact.todayDoneCount}</b>
+                    </div>
+                  </div>
+                </div>
+
+                {estudosCompact.todayPending.length === 0 ? (
+                  <div className="muted small" style={{ marginTop: 8 }}>
+                    Nada pendente para hoje 🎉
+                  </div>
+                ) : (
+                  <ul className="list" style={{ marginTop: 8 }}>
+                    {estudosCompact.todayPending.map((t) => (
+                      <li key={t.id} className="list-item" style={{ padding: "8px 10px" }}>
+                        <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {t.hora ? `${t.hora} — ` : ""}
+                          {t.materia}: {t.conteudo}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                {estudosCompact.upcoming.length > 0 && (
+                  <div className="muted small" style={{ marginTop: 8, lineHeight: 1.35 }}>
+                    Próximos:{" "}
+                    {estudosCompact.upcoming.slice(0, 3).map((u, idx) => (
+                      <span key={u.id}>
+                        <b>{u.ymd.slice(8, 10)}/{u.ymd.slice(5, 7)}</b>
+                        {u.hora ? ` ${u.hora}` : ""} — {u.materia}: {u.conteudo}
+                        {idx < Math.min(3, estudosCompact.upcoming.length) - 1 ? " • " : ""}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </div>
+        {/* ✅ FIM AGENDA */}
+
       </div>
 
       {/* RECEITAS / DESPESAS / SALDO / CRÉDITO */}
@@ -1027,19 +1203,16 @@ export default function FinancasPage() {
             <p className="resumo-label">Receitas do mês</p>
             <p className="resumo-number positive">{formatCurrency(resumoAtual.receitas)}</p>
           </div>
-
           <div>
             <p className="resumo-label">Despesas do mês</p>
             <p className="resumo-number negative">{formatCurrency(resumoAtual.despesas)}</p>
           </div>
-
           <div>
             <p className="resumo-label">Saldo</p>
             <p className={"resumo-number " + (saldoComSalario >= 0 ? "positive" : "negative")}>
               {formatCurrency(saldoComSalario)}
             </p>
           </div>
-
           <div>
             <p className="resumo-label">Crédito usado</p>
             <p className="resumo-number negative">{formatCurrency(resumoAtual.gastosCartao)}</p>
@@ -1050,15 +1223,12 @@ export default function FinancasPage() {
       {/* LIMITE */}
       <div className="card mt">
         <h3>Limite de gasto mensal</h3>
-
         {limiteGastoMensal ? (
           <>
             <p className="muted small">Limite: {formatCurrency(limiteGastoMensal)}</p>
-
             <div className="progress-bar">
               <div className="progress-fill" style={{ width: `${percLimite}%` }} />
             </div>
-
             <span className="progress-label">{percLimite.toFixed(0)}% utilizado</span>
           </>
         ) : (
@@ -1069,7 +1239,6 @@ export default function FinancasPage() {
       {/* GASTOS FIXOS */}
       <div className="card mt">
         <h3>Gastos fixos</h3>
-
         {resumoAtual.gastosFixos.length === 0 ? (
           <p className="muted small">Nenhum gasto fixo marcado.</p>
         ) : (
@@ -1087,7 +1256,6 @@ export default function FinancasPage() {
       {/* TOP GASTOS */}
       <div className="card mt">
         <h3>Top 5 gastos</h3>
-
         {resumoAtual.topDespesas.length === 0 ? (
           <p className="muted">Nenhuma despesa ainda.</p>
         ) : (
@@ -1095,8 +1263,7 @@ export default function FinancasPage() {
             {resumoAtual.topDespesas.map((t) => (
               <li key={t.id} className="list-item">
                 <span>
-                  {t.descricao}
-                  {t.count > 1 ? <span className="muted small"> · {t.count}x</span> : null}
+                  {t.descricao} {t.count > 1 ? <span className="muted small"> · {t.count}x</span> : null}
                 </span>
                 <span>{formatCurrency(t.valor)}</span>
               </li>
@@ -1107,59 +1274,38 @@ export default function FinancasPage() {
 
       {/* CATEGORIAS / SEMANAS */}
       <div className="grid-2 mt">
-        <div
-          className="card"
-          onClick={() => setModalCategorias(true)}
-          style={{ cursor: "pointer" }}
-          title="Clique para abrir detalhes"
-        >
+        <div className="card" onClick={() => setModalCategorias(true)} style={{ cursor: "pointer" }} title="Clique para abrir detalhes">
           <h3>Gasto por categoria</h3>
-
           <div className="pizza-chart-wrapper">
             <div className="pizza-chart" style={pizzaStyle} />
           </div>
-
           <div className="legend">
             <div className="legend-item">
-              <span className="legend-color legend-essential" />
-              Essencial ({resumoAtual.pEssencial.toFixed(0)}%)
+              <span className="legend-color legend-essential" /> Essencial ({resumoAtual.pEssencial.toFixed(0)}%)
             </div>
             <div className="legend-item">
-              <span className="legend-color legend-leisure" />
-              Lazer ({resumoAtual.pLazer.toFixed(0)}%)
-            </div>
-
-            <div className="legend-item">
-              <span className="legend-color" style={{ background: "#F59E0B" }} />
-              Burrice ({(resumoAtual.pBurrice || 0).toFixed(0)}%)
+              <span className="legend-color legend-leisure" /> Lazer ({resumoAtual.pLazer.toFixed(0)}%)
             </div>
             <div className="legend-item">
-              <span className="legend-color" style={{ background: "#10B981" }} />
-              Investido ({(resumoAtual.pInvestido || 0).toFixed(0)}%)
+              <span className="legend-color" style={{ background: "#F59E0B" }} /> Burrice ({(resumoAtual.pBurrice || 0).toFixed(0)}%)
             </div>
-
+            <div className="legend-item">
+              <span className="legend-color" style={{ background: "#10B981" }} /> Investido ({(resumoAtual.pInvestido || 0).toFixed(0)}%)
+            </div>
             <p className="muted small" style={{ marginTop: 8 }}>
               (Clique para abrir detalhes)
             </p>
           </div>
         </div>
 
-        <div
-          className="card"
-          onClick={() => setModalCategorias(true)}
-          style={{ cursor: "pointer" }}
-          title="Clique para abrir detalhes"
-        >
+        <div className="card" onClick={() => setModalCategorias(true)} style={{ cursor: "pointer" }} title="Clique para abrir detalhes">
           <h3>Gastos por semana</h3>
-
           <div className="weeks-grid">
             {resumoAtual.semanas.map((v, i) => {
               const pct = resumoAtual.maxSemana > 0 ? Math.max(2, (v / resumoAtual.maxSemana) * 100) : 2;
-
               return (
                 <div className="week-cell" key={i}>
                   <div className="muted small week-value">{formatCurrency(v)}</div>
-
                   <div
                     style={{
                       width: "100%",
@@ -1173,13 +1319,11 @@ export default function FinancasPage() {
                   >
                     <div style={{ width: `${pct}%`, height: "100%", background: "rgba(143,163,255,.85)" }} />
                   </div>
-
                   <span className="bar-label">Sem {i + 1}</span>
                 </div>
               );
             })}
           </div>
-
           <p className="muted small" style={{ marginTop: 8 }}>
             (Os valores acima são o total gasto em cada semana do mês.)
           </p>
@@ -1242,7 +1386,6 @@ export default function FinancasPage() {
               <p className="muted small" style={{ marginTop: 0 }}>
                 Abaixo o app pega <b>todas</b> as despesas do mês (histórico + fixos) e separa nas classes.
               </p>
-
               <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
                 {detalhesCategorias.porClasseList.map((c) => {
                   const has = (c.items || []).length > 0 && Number(c.total || 0) > 0;
@@ -1270,7 +1413,7 @@ export default function FinancasPage() {
                           {c.items.slice(0, 12).map((it, idx) => (
                             <li key={idx} className="list-item" style={{ padding: "8px 10px" }}>
                               <span style={{ minWidth: 0, overflowWrap: "anywhere" }}>
-                                {it.descricao}
+                                {it.descricao}{" "}
                                 {it.count > 1 ? <span className="muted small"> · {it.count}x</span> : null}
                               </span>
                               <span style={{ whiteSpace: "nowrap" }}>{formatCurrency(it.total)}</span>
@@ -1292,7 +1435,6 @@ export default function FinancasPage() {
 
             <div className="card" style={{ marginTop: 10 }}>
               <h4 style={{ marginBottom: 8 }}>🍔 Comida</h4>
-
               <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
                 <span>Total</span>
                 <span>
@@ -1303,6 +1445,7 @@ export default function FinancasPage() {
               <p className="muted small" style={{ marginTop: 8 }}>
                 Comida por categoria:
               </p>
+
               <ul className="list" style={{ marginTop: 6 }}>
                 <li className="list-item">
                   <span>Essencial</span>
@@ -1331,6 +1474,7 @@ export default function FinancasPage() {
               <p className="muted small" style={{ marginTop: 10 }}>
                 Itens de comida (somados):
               </p>
+
               {detalhesCategorias.foodByDesc.length === 0 ? (
                 <p className="muted small">Nenhum gasto de comida encontrado.</p>
               ) : (
@@ -1338,7 +1482,7 @@ export default function FinancasPage() {
                   {detalhesCategorias.foodByDesc.map((x, idx) => (
                     <li key={idx} className="list-item">
                       <span>
-                        {x.descricao}
+                        {x.descricao}{" "}
                         {x.count > 1 ? <span className="muted small"> · {x.count}x</span> : null}
                       </span>
                       <span>{formatCurrency(x.total)}</span>
@@ -1350,7 +1494,6 @@ export default function FinancasPage() {
 
             <div className="card" style={{ marginTop: 10 }}>
               <h4 style={{ marginBottom: 8 }}>🚗 Transporte</h4>
-
               <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
                 <span>Total</span>
                 <span>
@@ -1361,6 +1504,7 @@ export default function FinancasPage() {
               <p className="muted small" style={{ marginTop: 10 }}>
                 Itens de transporte (somados):
               </p>
+
               {detalhesCategorias.transportByDesc.length === 0 ? (
                 <p className="muted small">Nenhum gasto de transporte encontrado.</p>
               ) : (
@@ -1368,7 +1512,7 @@ export default function FinancasPage() {
                   {detalhesCategorias.transportByDesc.map((x, idx) => (
                     <li key={idx} className="list-item">
                       <span>
-                        {x.descricao}
+                        {x.descricao}{" "}
                         {x.count > 1 ? <span className="muted small"> · {x.count}x</span> : null}
                       </span>
                       <span>{formatCurrency(x.total)}</span>
