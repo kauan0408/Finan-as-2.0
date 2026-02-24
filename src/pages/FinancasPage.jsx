@@ -53,7 +53,6 @@ function normalizarNome(descricao) {
     .replace(/\s+/g, " ");
 }
 
-// ✅ ADICIONADO: normaliza texto para regras automáticas
 function normalizeText(s) {
   return String(s || "")
     .trim()
@@ -63,7 +62,6 @@ function normalizeText(s) {
     .replace(/\s+/g, " ");
 }
 
-// ✅ ADICIONADO: regras automáticas (comida / transporte)
 function isFood(desc) {
   const d = normalizeText(desc);
   const keys = [
@@ -103,7 +101,6 @@ function isTransport(desc) {
   return keys.some((k) => d.includes(normalizeText(k)));
 }
 
-// helpers de mês
 function monthKey(ano, mes0) {
   return `${ano}-${String(mes0 + 1).padStart(2, "0")}`;
 }
@@ -117,7 +114,7 @@ function prevMonth(ano, mes0) {
   return { ano: y, mes: m };
 }
 
-/* -------------------- ✅ helpers para lembretes + estudos (compacto) -------------------- */
+/* -------------------- helpers para lembretes + estudos -------------------- */
 function pad2(n) {
   return String(n).padStart(2, "0");
 }
@@ -188,212 +185,7 @@ function safeNavigateTo(path) {
   }
 }
 
-/* -------------------- ✅ classificação por CLASSE (7 grupos) -------------------- */
-const CLASSES_GASTOS = [
-  { key: "essenciais", label: "ESSENCIAIS" },
-  { key: "financeiro", label: "FINANCEIRO" },
-  { key: "educacao", label: "EDUCAÇÃO & DESENVOLVIMENTO" },
-  { key: "lazer", label: "LAZER & QUALIDADE DE VIDA" },
-  { key: "pessoal", label: "PESSOAL" },
-  { key: "casa", label: "CASA" },
-  { key: "imprevistos", label: "IMPREVISTOS" },
-];
-
-function classificarClassePorDescricao(descricao) {
-  const d = normalizeText(descricao);
-  const hit = (arr) => arr.some((k) => d.includes(normalizeText(k)));
-
-  if (
-    hit([
-      "cartao",
-      "cartão",
-      "credito",
-      "crédito",
-      "fatura",
-      "parcel",
-      "parcela",
-      "emprest",
-      "emprést",
-      "juros",
-      "taxa",
-      "tarifa",
-      "banco",
-      "nubank",
-      "itau",
-      "itaú",
-      "caixa",
-      "bradesco",
-      "santander",
-      "reserva",
-      "emergencia",
-      "emergência",
-      "investimento",
-      "investimentos",
-      "cdb",
-      "tesouro",
-      "poupanca",
-      "poupança",
-      "pix tarifa",
-    ])
-  ) {
-    return "financeiro";
-  }
-
-  if (
-    hit([
-      "escola",
-      "faculdade",
-      "curso",
-      "cursos",
-      "livro",
-      "livros",
-      "material escolar",
-      "apostila",
-      "enem",
-      "concurso",
-      "inscricao",
-      "inscrição",
-      "mensalidade",
-      "educacao",
-      "educação",
-      "prova",
-      "simulado",
-    ])
-  ) {
-    return "educacao";
-  }
-
-  if (
-    hit([
-      "restaurante",
-      "delivery",
-      "cinema",
-      "streaming",
-      "netflix",
-      "spotify",
-      "prime",
-      "disney",
-      "festa",
-      "academia",
-      "passeio",
-      "bar",
-      "bebida",
-      "churrasco",
-      "viagem",
-      "lazer",
-      "ifood",
-      "i food",
-      "lanche",
-      "hamburguer",
-      "hambúrguer",
-      "pizza",
-      "sorvete",
-    ])
-  ) {
-    return "lazer";
-  }
-
-  if (
-    hit([
-      "roupa",
-      "roupas",
-      "salao",
-      "salão",
-      "barbearia",
-      "cabelo",
-      "cosmetico",
-      "cosmético",
-      "cosmeticos",
-      "cosméticos",
-      "cuidados",
-      "higiene",
-      "perfume",
-      "maquiagem",
-      "pessoal",
-    ])
-  ) {
-    return "pessoal";
-  }
-
-  if (
-    hit([
-      "manutencao",
-      "manutenção",
-      "limpeza",
-      "produto de limpeza",
-      "produtos de limpeza",
-      "moveis",
-      "móveis",
-      "utensilio",
-      "utensílio",
-      "utensilios",
-      "utensílios",
-      "casa",
-      "reparo",
-      "conserto da casa",
-    ])
-  ) {
-    return "casa";
-  }
-
-  if (
-    hit([
-      "conserto",
-      "multa",
-      "emergencia",
-      "emergência",
-      "hospital",
-      "medico",
-      "médico",
-      "clinica",
-      "clínica",
-      "urgencia",
-      "urgência",
-      "carro",
-      "celular",
-      "quebra",
-      "perda",
-      "imprevisto",
-    ])
-  ) {
-    return "imprevistos";
-  }
-
-  if (
-    hit([
-      "aluguel",
-      "financiamento",
-      "agua",
-      "água",
-      "luz",
-      "energia",
-      "internet",
-      "gas",
-      "gás",
-      "mercado",
-      "supermercado",
-      "transporte",
-      "onibus",
-      "ônibus",
-      "passagem",
-      "farmacia",
-      "farmácia",
-      "plano de saude",
-      "plano de saúde",
-      "saude",
-      "saúde",
-      "combustivel",
-      "combustível",
-    ])
-  ) {
-    return "essenciais";
-  }
-
-  return "essenciais";
-}
-
-/* ----------------------------------------------------------------------------------------------------------- */
-/* ✅ Notificação topo (usa SW se tiver; senão Notification) */
+/* ✅ Notificação topo */
 async function showTopBarNotification(title, body, tag = "finance-agenda") {
   if (!("Notification" in window)) return;
   if (Notification.permission !== "granted") return;
@@ -413,21 +205,76 @@ async function showTopBarNotification(title, body, tag = "finance-agenda") {
   } catch {}
 }
 
+/* -------------------- ✅ Recorrência (fallback) -------------------- */
+function computeNextDueFallback(item, baseDate = new Date()) {
+  // Fallback bem tolerante: tenta achar "a cada" + unidade, senão joga +1 dia
+  const every =
+    Number(item?.every ?? item?.aCada ?? item?.interval ?? item?.intervalo ?? item?.intervalDays ?? item?.dias ?? 0) || 1;
+
+  const unitRaw = String(item?.unit ?? item?.unidade ?? item?.periodo ?? item?.freq ?? item?.frequencia ?? "dias").toLowerCase();
+
+  const b = new Date(baseDate);
+  if (Number.isNaN(b.getTime())) return new Date();
+
+  if (unitRaw.includes("sem")) {
+    b.setDate(b.getDate() + every * 7);
+    return b;
+  }
+  if (unitRaw.includes("mes")) {
+    b.setMonth(b.getMonth() + every);
+    return b;
+  }
+  if (unitRaw.includes("ano")) {
+    b.setFullYear(b.getFullYear() + every);
+    return b;
+  }
+  // dias (padrão)
+  b.setDate(b.getDate() + every);
+  return b;
+}
+
 export default function FinancasPage() {
+  // ✅ pega tudo sem quebrar caso alguma função não exista no contexto
+  const finance = useFinance() || {};
+
   const {
     transacoes,
     profile,
     mesReferencia,
     mudarMesReferencia,
     irParaMesAtual,
-    lembretes, // ✅ lembretes do contexto
-    estudos, // ✅ estudos do contexto (tarefas)
-    user, // ✅ para chave localStorage por usuário (se existir no seu contexto)
-  } = useFinance();
+    lembretes,
+    estudos,
+    user,
+
+    // ✅ se existir no seu App.jsx, a gente usa:
+    setLembretes,
+    salvarLembretes,
+    updateLembrete,
+    marcarLembreteComoFeito,
+    setEstudos,
+    salvarEstudos,
+    updateTarefaEstudo,
+    marcarTarefaEstudoComoFeita,
+  } = finance;
 
   const [modalCategorias, setModalCategorias] = useState(false);
 
-  // ✅ BOTÃO DE NOTIFICAÇÃO (só pede permissão ao clicar)
+  // ✅ NOVO: modal por item (não por lista)
+  const [itemModalOpen, setItemModalOpen] = useState(false);
+  const [itemModal, setItemModal] = useState(null);
+  // itemModal = { tipo: "lembrete"|"estudo", id, titulo, when, raw, extra... }
+
+  const openItemModal = (payload) => {
+    setItemModal(payload);
+    setItemModalOpen(true);
+  };
+  const closeItemModal = () => {
+    setItemModalOpen(false);
+    setItemModal(null);
+  };
+
+  // ✅ notificações (só pede permissão ao clicar)
   const [notifStatus, setNotifStatus] = useState(
     "Notification" in window ? Notification.permission : "unsupported"
   );
@@ -441,7 +288,6 @@ export default function FinancasPage() {
       const perm = await Notification.requestPermission();
       setNotifStatus(perm);
       if (perm === "granted") {
-        // teste simples
         await showTopBarNotification("🔔 Notificações ativadas!", "Agora você pode receber avisos do seu dia.");
       }
     } catch {
@@ -480,7 +326,7 @@ export default function FinancasPage() {
         }))
         .filter((g) => Number(g.valor) > 0);
 
-      transacoes.forEach((t) => {
+      (Array.isArray(transacoes) ? transacoes : []).forEach((t) => {
         const dt = new Date(t.dataHora);
         if (dt.getMonth() === mes0 && dt.getFullYear() === ano) {
           const valor = Number(t.valor || 0);
@@ -520,7 +366,7 @@ export default function FinancasPage() {
       const saldo = receitas - despesas;
 
       const mapa = new Map();
-      transacoes.forEach((t) => {
+      (Array.isArray(transacoes) ? transacoes : []).forEach((t) => {
         const dt = new Date(t.dataHora);
         if (t.tipo === "despesa" && dt.getMonth() === mes0 && dt.getFullYear() === ano) {
           const v = Number(t.valor || 0);
@@ -567,7 +413,7 @@ export default function FinancasPage() {
       };
     };
 
-    const { mes, ano } = mesReferencia;
+    const { mes, ano } = mesReferencia || { mes: new Date().getMonth(), ano: new Date().getFullYear() };
     const resumoAtual = montarResumoMes(mes, ano);
 
     const { ano: anoPrev, mes: mesPrev } = prevMonth(ano, mes);
@@ -584,7 +430,7 @@ export default function FinancasPage() {
 
   const { resumoAtual, pendenteAnterior } = resumo;
 
-  const chaveMesAtual = monthKey(mesReferencia.ano, mesReferencia.mes);
+  const chaveMesAtual = monthKey(mesReferencia?.ano ?? new Date().getFullYear(), mesReferencia?.mes ?? new Date().getMonth());
   const salarioFixo = Number((profile?.salariosPorMes || {})[chaveMesAtual] ?? profile?.rendaMensal ?? 0);
   const limiteGastoMensal = Number(profile?.limiteGastoMensal || 0);
 
@@ -632,13 +478,13 @@ export default function FinancasPage() {
     "Outubro",
     "Novembro",
     "Dezembro",
-  ][mesReferencia.mes];
+  ][mesReferencia?.mes ?? new Date().getMonth()];
 
   const detalhesCategorias = useMemo(() => {
-    const mes0 = mesReferencia.mes;
-    const ano = mesReferencia.ano;
+    const mes0 = mesReferencia?.mes ?? new Date().getMonth();
+    const ano = mesReferencia?.ano ?? new Date().getFullYear();
 
-    const despesasMes = transacoes
+    const despesasMes = (Array.isArray(transacoes) ? transacoes : [])
       .filter((t) => {
         const dt = new Date(t.dataHora);
         return t.tipo === "despesa" && dt.getMonth() === mes0 && dt.getFullYear() === ano;
@@ -708,34 +554,8 @@ export default function FinancasPage() {
       else totalPorCategoria.outras += t.valor;
     });
 
-    const porClasse = new Map();
-    CLASSES_GASTOS.forEach((c) => {
-      porClasse.set(c.key, { key: c.key, label: c.label, total: 0, itemsMap: new Map() });
-    });
-
-    tudo.forEach((t) => {
-      const classeKey = classificarClassePorDescricao(t.descricao);
-      const bucket = porClasse.get(classeKey) || porClasse.get("essenciais");
-      const v = Number(t.valor || 0);
-      bucket.total += v;
-
-      const k = normalizarNome(t.descricao);
-      const cur = bucket.itemsMap.get(k) || { descricao: t.descricao, total: 0, count: 0 };
-      cur.total += v;
-      cur.count += 1;
-      if ((!cur.descricao || cur.descricao === "Sem descrição") && t.descricao) cur.descricao = t.descricao;
-      bucket.itemsMap.set(k, cur);
-    });
-
-    const porClasseList = Array.from(porClasse.values()).map((b) => {
-      const items = Array.from(b.itemsMap.values()).sort((a, b2) => b2.total - a.total);
-      return { ...b, items };
-    });
-
-    const totalMes = sum(tudo);
-
     return {
-      totalMes,
+      totalMes: sum(tudo),
       totalFood: sum(food),
       totalTransport: sum(transport),
       totalOther: sum(other),
@@ -743,25 +563,149 @@ export default function FinancasPage() {
       transportByDesc,
       foodPorCategoria,
       totalPorCategoria,
-      porClasseList,
       tudoCount: tudo.length,
     };
   }, [transacoes, mesReferencia, resumoAtual.gastosFixos]);
 
-  /* -------------------- lembretes (compacto) + fallback -------------------- */
+  /* -------------------- lembretes (compacto) + fallback + sync local -------------------- */
   const [lembretesFallback, setLembretesFallback] = useState([]);
+  const [lembretesOverride, setLembretesOverride] = useState(null);
 
   useEffect(() => {
     try {
-      if (Array.isArray(lembretes) && lembretes.length) return;
+      if (Array.isArray(lembretes) && lembretes.length) {
+        setLembretesOverride(null);
+        return;
+      }
       const raw = localStorage.getItem("pwa_lembretes_v1") || "[]";
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) setLembretesFallback(parsed);
     } catch {}
   }, [lembretes]);
 
-  const lembretesList = Array.isArray(lembretes) && lembretes.length ? lembretes : lembretesFallback;
+  const lembretesList = useMemo(() => {
+    if (Array.isArray(lembretesOverride)) return lembretesOverride;
+    if (Array.isArray(lembretes) && lembretes.length) return lembretes;
+    return lembretesFallback;
+  }, [lembretesOverride, lembretes, lembretesFallback]);
 
+  /* -------------------- estudos (local override opcional) -------------------- */
+  const [estudosOverride, setEstudosOverride] = useState(null);
+  const estudosBase = estudosOverride || estudos || null;
+
+  /* -------------------- ✅ AÇÕES: marcar como feito (com refletir nas abas) -------------------- */
+  async function marcarFeitoAtual() {
+    if (!itemModal) return;
+
+    // ===== LEMBRETES =====
+    if (itemModal.tipo === "lembrete") {
+      const id = itemModal.id;
+      const raw = itemModal.raw || {};
+
+      // 1) Se o contexto tiver função, usa
+      try {
+        if (typeof marcarLembreteComoFeito === "function") {
+          await marcarLembreteComoFeito(id);
+          closeItemModal();
+          return;
+        }
+        if (typeof updateLembrete === "function") {
+          // tentativa genérica: updateLembrete(id, patch)
+          if (raw.tipo === "avulso") {
+            await updateLembrete(id, { done: true });
+          } else {
+            const now = new Date();
+            const next = computeNextDueFallback(raw, now);
+            await updateLembrete(id, {
+              lastDoneISO: now.toISOString(),
+              nextDueISO: next.toISOString(),
+            });
+          }
+          closeItemModal();
+          return;
+        }
+      } catch {}
+
+      // 2) Fallback localStorage (pwa_lembretes_v1)
+      try {
+        const list = Array.isArray(lembretesList) ? [...lembretesList] : [];
+        const idx = list.findIndex((x) => x && String(x.id) === String(id));
+        if (idx >= 0) {
+          const it = { ...(list[idx] || {}) };
+          if (it.tipo === "avulso") {
+            it.done = true;
+            it.doneAtISO = new Date().toISOString();
+          } else {
+            const now = new Date();
+            const next = computeNextDueFallback(it, now);
+            it.lastDoneISO = now.toISOString();
+            it.nextDueISO = next.toISOString();
+          }
+          list[idx] = it;
+
+          // salva
+          localStorage.setItem("pwa_lembretes_v1", JSON.stringify(list));
+
+          // reflete na UI aqui
+          setLembretesOverride(list);
+
+          // se tiver setLembretes/salvarLembretes, tenta sincronizar
+          try {
+            if (typeof setLembretes === "function") setLembretes(list);
+            if (typeof salvarLembretes === "function") salvarLembretes(list);
+          } catch {}
+        }
+      } catch {}
+
+      closeItemModal();
+      return;
+    }
+
+    // ===== ESTUDOS =====
+    if (itemModal.tipo === "estudo") {
+      const id = itemModal.id;
+
+      // 1) Se o contexto tiver função, usa
+      try {
+        if (typeof marcarTarefaEstudoComoFeita === "function") {
+          await marcarTarefaEstudoComoFeita(id);
+          closeItemModal();
+          return;
+        }
+        if (typeof updateTarefaEstudo === "function") {
+          await updateTarefaEstudo(id, { status: "feito", feitoEmISO: new Date().toISOString() });
+          closeItemModal();
+          return;
+        }
+      } catch {}
+
+      // 2) Fallback: tenta editar a estrutura estudos.tarefas e guardar em localStorage
+      try {
+        const base = estudosBase && typeof estudosBase === "object" ? { ...estudosBase } : { tarefas: [] };
+        const tarefas = Array.isArray(base.tarefas) ? [...base.tarefas] : [];
+        const idx = tarefas.findIndex((t) => t && String(t.id) === String(id));
+        if (idx >= 0) {
+          tarefas[idx] = { ...(tarefas[idx] || {}), status: "feito", feitoEmISO: new Date().toISOString() };
+          base.tarefas = tarefas;
+
+          // tenta salvar em LS (caso seu EstudosPage use outro, você pode trocar aqui)
+          localStorage.setItem("pwa_estudos_v1", JSON.stringify(base));
+
+          setEstudosOverride(base);
+
+          try {
+            if (typeof setEstudos === "function") setEstudos(base);
+            if (typeof salvarEstudos === "function") salvarEstudos(base);
+          } catch {}
+        }
+      } catch {}
+
+      closeItemModal();
+      return;
+    }
+  }
+
+  /* -------------------- lembretesCompact (agora guarda raw + permite modal por item) -------------------- */
   const lembretesCompact = useMemo(() => {
     const list = Array.isArray(lembretesList) ? lembretesList : [];
     const now = new Date();
@@ -776,14 +720,26 @@ export default function FinancasPage() {
           if (it.done) return null;
           const dt = parseLocalDateTime(it.quando);
           if (!dt || Number.isNaN(dt.getTime())) return null;
-          return { id: it.id, tipo: "avulso", titulo: it.titulo || "Sem título", when: dt };
+          return {
+            id: it.id,
+            tipo: "avulso",
+            titulo: it.titulo || "Sem título",
+            when: dt,
+            raw: it,
+          };
         }
 
         if (it.tipo === "recorrente") {
           if (it.enabled === false) return null;
           const dt = new Date(it.nextDueISO || "");
           if (!dt || Number.isNaN(dt.getTime())) return null;
-          return { id: it.id, tipo: "recorrente", titulo: it.titulo || "Sem título", when: dt };
+          return {
+            id: it.id,
+            tipo: "recorrente",
+            titulo: it.titulo || "Sem título",
+            when: dt,
+            raw: it,
+          };
         }
 
         return null;
@@ -791,7 +747,8 @@ export default function FinancasPage() {
       .filter(Boolean)
       .sort((a, b) => a.when.getTime() - b.when.getTime());
 
-    const today = events.filter((e) => e.when.getTime() >= from.getTime() && e.when.getTime() <= to.getTime());
+    const todayAll = events.filter((e) => e.when.getTime() >= from.getTime() && e.when.getTime() <= to.getTime());
+    const today = todayAll.slice(0, 6); // aqui é só pra preview, mas você pediu só título mesmo
     const upcoming = events.filter((e) => e.when.getTime() > to.getTime()).slice(0, 6);
 
     const days = Array.from({ length: 7 }).map((_, idx) => {
@@ -804,12 +761,12 @@ export default function FinancasPage() {
       return { key, date: d, count };
     });
 
-    return { today: today.slice(0, 3), todayCount: today.length, upcoming, days, todayAll: today };
+    return { today, todayCount: todayAll.length, upcoming, days, todayAll };
   }, [lembretesList]);
 
-  /* -------------------- estudos (compacto) -------------------- */
+  /* -------------------- estudosCompact (também guarda raw) -------------------- */
   const estudosCompact = useMemo(() => {
-    const tarefas = Array.isArray(estudos?.tarefas) ? estudos.tarefas : [];
+    const tarefas = Array.isArray(estudosBase?.tarefas) ? estudosBase.tarefas : [];
     const now = new Date();
     const from = startOfDay(now);
     const to = endOfDay(now);
@@ -827,16 +784,16 @@ export default function FinancasPage() {
         minutos: Number(t.minutos || 0),
         tipo: String(t.tipo || "conteudo"),
         nota: String(t.nota || ""),
+        raw: t,
       }));
 
     const todayAll = all
       .filter((t) => t.ymd === todayKey)
       .sort((a, b) => (a.hora || "99:99").localeCompare(b.hora || "99:99"));
 
-    const todayPending = todayAll.filter((t) => t.status !== "feito");
-    const todayDone = todayAll.filter((t) => t.status === "feito");
+    const todayPendingAll = todayAll.filter((t) => t.status !== "feito");
+    const todayPending = todayPendingAll.slice(0, 6);
 
-    // próximos (até 7 dias) - só PENDENTES
     const next7 = [];
     for (let i = 0; i < 7; i++) {
       const d = addDays(from, i);
@@ -847,7 +804,6 @@ export default function FinancasPage() {
       next7.push({ key, date: d, count: itens.length, itens: itens.slice(0, 6) });
     }
 
-    // "upcoming" (depois de hoje) próximos 6 pendentes
     const afterToday = all
       .filter((t) => t.status !== "feito")
       .filter((t) => {
@@ -865,18 +821,17 @@ export default function FinancasPage() {
 
     return {
       todayAll,
-      todayPending: todayPending.slice(0, 3),
-      todayPendingCount: todayPending.length,
-      todayDoneCount: todayDone.length,
+      todayPendingAll,
+      todayPending,
+      todayPendingCount: todayPendingAll.length,
       days: next7.map((x) => ({ key: x.key, date: x.date, count: x.count })),
       upcoming: afterToday,
       todayKey,
     };
-  }, [estudos]);
+  }, [estudosBase]);
 
-  /* -------------------- ✅ Notificação ao abrir o app (Finanças): Lembretes + Estudos (1x por dia) -------------------- */
+  /* -------------------- ✅ Notificação ao abrir (1x por dia) -------------------- */
   useEffect(() => {
-    // não pede permissão sozinho
     if (!("Notification" in window)) return;
     if (Notification.permission !== "granted") return;
 
@@ -901,16 +856,15 @@ export default function FinancasPage() {
     }
 
     if (estHoje > 0) {
-      const top = (estudosCompact.todayAll || [])
-        .filter((t) => t.status !== "feito")
+      const top = (estudosCompact.todayPendingAll || [])
         .slice(0, 6)
         .map((t) => `• ${t.hora ? t.hora + " " : ""}${t.materia}: ${t.conteudo}`.trim());
-      if (lines.length) lines.push(""); // separador
+      if (lines.length) lines.push("");
       lines.push(`📚 Estudos hoje: ${estHoje}`);
       lines.push(...top);
     }
 
-    const body = lines.join("\n").slice(0, 900); // evita body gigante
+    const body = lines.join("\n").slice(0, 900);
     showTopBarNotification("✅ Seu dia (Finanças)", body, "financas-dia");
 
     try {
@@ -926,16 +880,16 @@ export default function FinancasPage() {
       {/* NAVEGAÇÃO DO MÊS */}
       <div className="card" style={{ textAlign: "center", marginBottom: 12 }}>
         <h3>
-          {nomeMes} / {mesReferencia.ano}
+          {nomeMes} / {mesReferencia?.ano ?? new Date().getFullYear()}
         </h3>
         <div style={{ display: "flex", justifyContent: "space-between", marginTop: 10 }}>
-          <button className="toggle-btn" onClick={() => mudarMesReferencia(-1)}>
+          <button className="toggle-btn" onClick={() => mudarMesReferencia?.(-1)}>
             ◀ Mês anterior
           </button>
           <button className="toggle-btn toggle-active" onClick={irParaMesAtual}>
             ● Atual
           </button>
-          <button className="toggle-btn" onClick={() => mudarMesReferencia(1)}>
+          <button className="toggle-btn" onClick={() => mudarMesReferencia?.(1)}>
             Próximo mês ▶
           </button>
         </div>
@@ -955,7 +909,7 @@ export default function FinancasPage() {
           )}
         </div>
 
-        {/* ✅ AQUI FOI TROCADO: agora mostra AGENDA (Lembretes + Estudos) no lugar do bloco antigo */}
+        {/* ✅ AGENDA (HOJE) */}
         <div style={{ marginTop: 10 }}>
           <div
             className="card"
@@ -967,9 +921,8 @@ export default function FinancasPage() {
           >
             <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
               <div style={{ minWidth: 240 }}>
-                <div style={{ fontWeight: 900, fontSize: 14 }}>📅 Agenda da semana</div>
+                <div style={{ fontWeight: 900, fontSize: 14 }}>📅 Hoje</div>
 
-                {/* linha pequena com pagamento + pendente (não é mais o bloco principal) */}
                 <div className="muted small" style={{ marginTop: 4 }}>
                   {pendenteAnterior > 0 ? (
                     <>
@@ -1052,7 +1005,8 @@ export default function FinancasPage() {
               </div>
             </div>
 
-            {/* ✅ GRID: Lembretes + Estudos */}
+            {/* ✅ AGORA: na parte de lembretes e estudos aparece SÓ os TÍTULOS.
+                CLICOU NO TÍTULO -> ABRE MODAL do item, com detalhes + "Marcar como feito" + botão pra ir pra página */}
             <div
               style={{
                 display: "grid",
@@ -1064,137 +1018,229 @@ export default function FinancasPage() {
               {/* LEMBRETES */}
               <div
                 className="card"
-                role="button"
-                tabIndex={0}
-                onClick={() => safeNavigateTo("/lembretes")}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") safeNavigateTo("/lembretes");
-                }}
                 style={{
                   padding: 10,
                   background: "rgba(255,255,255,.02)",
                   border: "1px solid rgba(255,255,255,.08)",
-                  cursor: "pointer",
                 }}
-                title="Clique para abrir Lembretes"
               >
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontWeight: 800, fontSize: 14 }}>📌 Lembretes</div>
                     <div className="muted small" style={{ marginTop: 2 }}>
                       Hoje: <b>{lembretesCompact.todayCount}</b>
-                      {lembretesCompact.todayCount > 3 ? " (mostrando 3)" : ""}
                     </div>
                   </div>
+                  <button className="toggle-btn" type="button" onClick={() => safeNavigateTo("/lembretes")}>
+                    Abrir
+                  </button>
                 </div>
 
-                {lembretesCompact.today.length === 0 ? (
+                {lembretesCompact.todayAll.length === 0 ? (
                   <div className="muted small" style={{ marginTop: 8 }}>
                     Nada para hoje 🎉
                   </div>
                 ) : (
                   <ul className="list" style={{ marginTop: 8 }}>
-                    {lembretesCompact.today.map((t) => (
-                      <li key={t.id} className="list-item" style={{ padding: "8px 10px" }}>
+                    {lembretesCompact.todayAll.map((t) => (
+                      <li
+                        key={t.id}
+                        className="list-item"
+                        style={{ padding: "8px 10px", cursor: "pointer" }}
+                        onClick={() =>
+                          openItemModal({
+                            tipo: "lembrete",
+                            id: t.id,
+                            titulo: t.titulo,
+                            when: t.when,
+                            subtipo: t.tipo,
+                            raw: t.raw,
+                          })
+                        }
+                        title="Clique para ver detalhes"
+                      >
                         <span
                           style={{
                             minWidth: 0,
                             overflow: "hidden",
                             textOverflow: "ellipsis",
                             whiteSpace: "nowrap",
+                            fontWeight: 800,
                           }}
                         >
-                          {t.titulo}{" "}
-                          <span className="muted small" style={{ fontWeight: 600 }}>
-                            • {t.tipo === "recorrente" ? "recorrente" : "avulso"}
-                          </span>
-                        </span>
-                        <span className="muted small" style={{ whiteSpace: "nowrap" }}>
-                          {fmtTimeHHmm(t.when)}
+                          {t.titulo}
                         </span>
                       </li>
                     ))}
                   </ul>
-                )}
-
-                {lembretesCompact.upcoming.length > 0 && (
-                  <div className="muted small" style={{ marginTop: 8, lineHeight: 1.35 }}>
-                    Próximos:{" "}
-                    {lembretesCompact.upcoming.slice(0, 3).map((u, idx) => (
-                      <span key={u.id}>
-                        <b>{fmtShortBR(u.when)}</b> {fmtTimeHHmm(u.when)} — {u.titulo}
-                        {idx < Math.min(3, lembretesCompact.upcoming.length) - 1 ? " • " : ""}
-                      </span>
-                    ))}
-                  </div>
                 )}
               </div>
 
               {/* ESTUDOS */}
               <div
                 className="card"
-                role="button"
-                tabIndex={0}
-                onClick={() => safeNavigateTo("/estudos")}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") safeNavigateTo("/estudos");
-                }}
                 style={{
                   padding: 10,
                   background: "rgba(255,255,255,.02)",
                   border: "1px solid rgba(255,255,255,.08)",
-                  cursor: "pointer",
                 }}
-                title="Clique para abrir Estudos"
               >
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontWeight: 800, fontSize: 14 }}>📚 Estudos</div>
                     <div className="muted small" style={{ marginTop: 2 }}>
                       Hoje (pendente): <b>{estudosCompact.todayPendingCount}</b>
-                      {estudosCompact.todayPendingCount > 3 ? " (mostrando 3)" : ""}
-                      {" • "}
-                      Feitos: <b>{estudosCompact.todayDoneCount}</b>
                     </div>
                   </div>
+                  <button className="toggle-btn" type="button" onClick={() => safeNavigateTo("/estudos")}>
+                    Abrir
+                  </button>
                 </div>
 
-                {estudosCompact.todayPending.length === 0 ? (
+                {estudosCompact.todayPendingAll.length === 0 ? (
                   <div className="muted small" style={{ marginTop: 8 }}>
                     Nada pendente para hoje 🎉
                   </div>
                 ) : (
                   <ul className="list" style={{ marginTop: 8 }}>
-                    {estudosCompact.todayPending.map((t) => (
-                      <li key={t.id} className="list-item" style={{ padding: "8px 10px" }}>
-                        <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {t.hora ? `${t.hora} — ` : ""}
-                          {t.materia}: {t.conteudo}
-                        </span>
-                      </li>
-                    ))}
+                    {estudosCompact.todayPendingAll.map((t) => {
+                      const title = `${t.materia}${t.conteudo ? ": " + t.conteudo : ""}`;
+                      return (
+                        <li
+                          key={t.id}
+                          className="list-item"
+                          style={{ padding: "8px 10px", cursor: "pointer" }}
+                          onClick={() =>
+                            openItemModal({
+                              tipo: "estudo",
+                              id: t.id,
+                              titulo: title,
+                              raw: t.raw,
+                              materia: t.materia,
+                              conteudo: t.conteudo,
+                              hora: t.hora,
+                              minutos: t.minutos,
+                              nota: t.nota,
+                              ymd: t.ymd,
+                            })
+                          }
+                          title="Clique para ver detalhes"
+                        >
+                          <span
+                            style={{
+                              minWidth: 0,
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                              fontWeight: 800,
+                            }}
+                          >
+                            {title}
+                          </span>
+                        </li>
+                      );
+                    })}
                   </ul>
-                )}
-
-                {estudosCompact.upcoming.length > 0 && (
-                  <div className="muted small" style={{ marginTop: 8, lineHeight: 1.35 }}>
-                    Próximos:{" "}
-                    {estudosCompact.upcoming.slice(0, 3).map((u, idx) => (
-                      <span key={u.id}>
-                        <b>{u.ymd.slice(8, 10)}/{u.ymd.slice(5, 7)}</b>
-                        {u.hora ? ` ${u.hora}` : ""} — {u.materia}: {u.conteudo}
-                        {idx < Math.min(3, estudosCompact.upcoming.length) - 1 ? " • " : ""}
-                      </span>
-                    ))}
-                  </div>
                 )}
               </div>
             </div>
           </div>
         </div>
         {/* ✅ FIM AGENDA */}
-
       </div>
+
+      {/* ✅ MODAL DO ITEM (UM POR VEZ) */}
+      {itemModalOpen && itemModal && (
+        <div className="modal-overlay" onClick={closeItemModal}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+              <h3 style={{ margin: 0 }}>
+                {itemModal.tipo === "lembrete" ? "📌 Lembrete" : "📚 Estudo"}
+              </h3>
+              <button className="toggle-btn" type="button" onClick={closeItemModal}>
+                Fechar
+              </button>
+            </div>
+
+            <div style={{ marginTop: 10 }}>
+              <div style={{ fontWeight: 900, fontSize: 16, overflowWrap: "anywhere" }}>{itemModal.titulo}</div>
+
+              {itemModal.tipo === "lembrete" ? (
+                <>
+                  <div className="muted small" style={{ marginTop: 6 }}>
+                    Tipo: <b>{itemModal.subtipo === "recorrente" ? "Recorrente" : "Avulso"}</b>
+                    {" • "}
+                    Quando: <b>{fmtShortBR(itemModal.when)} {fmtTimeHHmm(itemModal.when)}</b>
+                  </div>
+
+                  {/* mostra campos extras se existirem */}
+                  {itemModal.raw?.descricao ? (
+                    <div className="muted small" style={{ marginTop: 8 }}>
+                      <b>Descrição:</b> {String(itemModal.raw.descricao)}
+                    </div>
+                  ) : null}
+                  {itemModal.raw?.categoria ? (
+                    <div className="muted small" style={{ marginTop: 6 }}>
+                      <b>Categoria:</b> {String(itemModal.raw.categoria)}
+                    </div>
+                  ) : null}
+                </>
+              ) : (
+                <>
+                  <div className="muted small" style={{ marginTop: 6 }}>
+                    Data: <b>{String(itemModal.ymd || "")}</b>
+                    {itemModal.hora ? (
+                      <>
+                        {" • "}Hora: <b>{String(itemModal.hora)}</b>
+                      </>
+                    ) : null}
+                    {itemModal.minutos ? (
+                      <>
+                        {" • "}Duração: <b>{Number(itemModal.minutos)} min</b>
+                      </>
+                    ) : null}
+                  </div>
+
+                  <div className="muted small" style={{ marginTop: 8 }}>
+                    <b>Matéria:</b> {String(itemModal.materia || "Estudos")}
+                  </div>
+
+                  {itemModal.conteudo ? (
+                    <div className="muted small" style={{ marginTop: 6 }}>
+                      <b>Conteúdo:</b> {String(itemModal.conteudo)}
+                    </div>
+                  ) : null}
+
+                  {itemModal.nota ? (
+                    <div className="muted small" style={{ marginTop: 6 }}>
+                      <b>Nota:</b> {String(itemModal.nota)}
+                    </div>
+                  ) : null}
+                </>
+              )}
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
+              <button
+                className="toggle-btn toggle-active"
+                type="button"
+                onClick={() => safeNavigateTo(itemModal.tipo === "lembrete" ? "/lembretes" : "/estudos")}
+              >
+                Ir para página
+              </button>
+
+              <button className="toggle-btn" type="button" onClick={marcarFeitoAtual}>
+                ✅ Marcar como feito
+              </button>
+            </div>
+
+            <p className="muted small" style={{ marginTop: 10 }}>
+              Obs.: Se o seu App.jsx tiver funções de salvar/marcar como feito, isso vai refletir automaticamente nas abas.
+              Se não tiver, eu já deixei fallback em localStorage para não “sumir” aqui.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* RECEITAS / DESPESAS / SALDO / CRÉDITO */}
       <div className="card mt">
@@ -1239,7 +1285,7 @@ export default function FinancasPage() {
       {/* GASTOS FIXOS */}
       <div className="card mt">
         <h3>Gastos fixos</h3>
-        {resumoAtual.gastosFixos.length === 0 ? (
+        {(resumoAtual.gastosFixos || []).length === 0 ? (
           <p className="muted small">Nenhum gasto fixo marcado.</p>
         ) : (
           <ul className="list">
@@ -1256,7 +1302,7 @@ export default function FinancasPage() {
       {/* TOP GASTOS */}
       <div className="card mt">
         <h3>Top 5 gastos</h3>
-        {resumoAtual.topDespesas.length === 0 ? (
+        {(resumoAtual.topDespesas || []).length === 0 ? (
           <p className="muted">Nenhuma despesa ainda.</p>
         ) : (
           <ul className="list">
@@ -1336,7 +1382,7 @@ export default function FinancasPage() {
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
             <h3>Detalhes do mês</h3>
             <p className="muted small" style={{ marginTop: 4 }}>
-              {nomeMes} / {mesReferencia.ano}
+              {nomeMes} / {mesReferencia?.ano ?? new Date().getFullYear()}
             </p>
 
             <div className="card" style={{ marginTop: 10 }}>
@@ -1382,58 +1428,6 @@ export default function FinancasPage() {
             </div>
 
             <div className="card" style={{ marginTop: 10 }}>
-              <h4 style={{ marginBottom: 8 }}>CATEGORIAS DE GASTOS (por classe)</h4>
-              <p className="muted small" style={{ marginTop: 0 }}>
-                Abaixo o app pega <b>todas</b> as despesas do mês (histórico + fixos) e separa nas classes.
-              </p>
-              <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
-                {detalhesCategorias.porClasseList.map((c) => {
-                  const has = (c.items || []).length > 0 && Number(c.total || 0) > 0;
-                  return (
-                    <div
-                      key={c.key}
-                      style={{
-                        border: "1px solid rgba(255,255,255,.08)",
-                        background: "rgba(255,255,255,.02)",
-                        borderRadius: 14,
-                        padding: 12,
-                      }}
-                    >
-                      <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-                        <div style={{ fontWeight: 900 }}>{c.label}</div>
-                        <div style={{ fontWeight: 900 }}>{formatCurrency(c.total)}</div>
-                      </div>
-
-                      {!has ? (
-                        <div className="muted small" style={{ marginTop: 8 }}>
-                          Sem itens neste mês.
-                        </div>
-                      ) : (
-                        <ul className="list" style={{ marginTop: 8 }}>
-                          {c.items.slice(0, 12).map((it, idx) => (
-                            <li key={idx} className="list-item" style={{ padding: "8px 10px" }}>
-                              <span style={{ minWidth: 0, overflowWrap: "anywhere" }}>
-                                {it.descricao}{" "}
-                                {it.count > 1 ? <span className="muted small"> · {it.count}x</span> : null}
-                              </span>
-                              <span style={{ whiteSpace: "nowrap" }}>{formatCurrency(it.total)}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-
-                      {has && (c.items || []).length > 12 && (
-                        <div className="muted small" style={{ marginTop: 8 }}>
-                          Mostrando 12 itens. (Total de itens na classe: {c.items.length})
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="card" style={{ marginTop: 10 }}>
               <h4 style={{ marginBottom: 8 }}>🍔 Comida</h4>
               <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
                 <span>Total</span>
@@ -1443,35 +1437,6 @@ export default function FinancasPage() {
               </div>
 
               <p className="muted small" style={{ marginTop: 8 }}>
-                Comida por categoria:
-              </p>
-
-              <ul className="list" style={{ marginTop: 6 }}>
-                <li className="list-item">
-                  <span>Essencial</span>
-                  <span>{formatCurrency(detalhesCategorias.foodPorCategoria.essencial)}</span>
-                </li>
-                <li className="list-item">
-                  <span>Lazer</span>
-                  <span>{formatCurrency(detalhesCategorias.foodPorCategoria.lazer)}</span>
-                </li>
-                <li className="list-item">
-                  <span>Burrice</span>
-                  <span>{formatCurrency(detalhesCategorias.foodPorCategoria.burrice)}</span>
-                </li>
-                <li className="list-item">
-                  <span>Investido</span>
-                  <span>{formatCurrency(detalhesCategorias.foodPorCategoria.investido)}</span>
-                </li>
-                {detalhesCategorias.foodPorCategoria.outras > 0 && (
-                  <li className="list-item">
-                    <span>Outras</span>
-                    <span>{formatCurrency(detalhesCategorias.foodPorCategoria.outras)}</span>
-                  </li>
-                )}
-              </ul>
-
-              <p className="muted small" style={{ marginTop: 10 }}>
                 Itens de comida (somados):
               </p>
 
