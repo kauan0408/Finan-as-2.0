@@ -767,6 +767,13 @@ export default function App() {
     setReserva((prev) => ({ ...prev, ...novosDados }));
   };
 
+  // ✅ NOVO: função simples para trocar aba via contexto
+  const irParaAba = (key) => {
+    try {
+      setAbaAtiva(String(key || "financas"));
+    } catch {}
+  };
+
   const contexto = useMemo(
     () => ({
       user,
@@ -805,6 +812,11 @@ export default function App() {
       setMesAuto,
       setMesReferenciaManual,
 
+      // ✅ NOVO: navegação interna por aba (ISSO resolve seu problema)
+      abaAtiva,
+      setAbaAtiva,
+      irParaAba,
+
       loginComGoogle,
       logout,
     }),
@@ -821,6 +833,7 @@ export default function App() {
       divisaoCasa,
       mesReferencia,
       mesAuto,
+      abaAtiva,
     ]
   );
 
