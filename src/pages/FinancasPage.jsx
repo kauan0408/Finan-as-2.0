@@ -168,23 +168,6 @@ function fmtTimeHHmm(d) {
   }
 }
 
-/* ✅ navegação sem depender de react-router */
-function safeNavigateTo(path) {
-  try {
-    const p = String(path || "/");
-    if (window.location.hash && window.location.hash.startsWith("#/")) {
-      window.location.hash = "#" + (p.startsWith("/") ? p : "/" + p);
-      return;
-    }
-    window.history.pushState({}, "", p.startsWith("/") ? p : "/" + p);
-    window.dispatchEvent(new PopStateEvent("popstate"));
-  } catch {
-    try {
-      window.location.href = path;
-    } catch {}
-  }
-}
-
 /* ✅ Notificação topo */
 async function showTopBarNotification(title, body, tag = "finance-agenda") {
   if (!("Notification" in window)) return;
@@ -211,7 +194,9 @@ function computeNextDueFallback(item, baseDate = new Date()) {
   const every =
     Number(item?.every ?? item?.aCada ?? item?.interval ?? item?.intervalo ?? item?.intervalDays ?? item?.dias ?? 0) || 1;
 
-  const unitRaw = String(item?.unit ?? item?.unidade ?? item?.periodo ?? item?.freq ?? item?.frequencia ?? "dias").toLowerCase();
+  const unitRaw = String(
+    item?.unit ?? item?.unidade ?? item?.periodo ?? item?.freq ?? item?.frequencia ?? "dias"
+  ).toLowerCase();
 
   const b = new Date(baseDate);
   if (Number.isNaN(b.getTime())) return new Date();
@@ -430,7 +415,10 @@ export default function FinancasPage() {
 
   const { resumoAtual, pendenteAnterior } = resumo;
 
-  const chaveMesAtual = monthKey(mesReferencia?.ano ?? new Date().getFullYear(), mesReferencia?.mes ?? new Date().getMonth());
+  const chaveMesAtual = monthKey(
+    mesReferencia?.ano ?? new Date().getFullYear(),
+    mesReferencia?.mes ?? new Date().getMonth()
+  );
   const salarioFixo = Number((profile?.salariosPorMes || {})[chaveMesAtual] ?? profile?.rendaMensal ?? 0);
   const limiteGastoMensal = Number(profile?.limiteGastoMensal || 0);
 
@@ -593,58 +581,6 @@ export default function FinancasPage() {
   const [estudosOverride, setEstudosOverride] = useState(null);
   const estudosBase = estudosOverride || estudos || null;
 
-  /* -------------------- ✅ NAVEGAÇÃO ROBUSTA (URL + contexto do App) -------------------- */
-  function smartNavigateTo(path) {
-    const raw = String(path || "/");
-    const clean = raw
-      .replace(/^#/, "")
-      .replace(/^\//, "")
-      .split("?")[0]
-      .split("#")[0]
-      .trim()
-      .toLowerCase();
-
-    const key = clean.split("/")[0] || "";
-
-    // tenta navegar via funções do seu contexto (se existirem)
-    const candidates = [
-      "navigate",
-      "navegar",
-      "goTo",
-      "goto",
-      "irPara",
-      "irParaPagina",
-      "setPage",
-      "setPagina",
-      "setPaginaAtual",
-      "setCurrentPage",
-      "setActivePage",
-      "setTab",
-      "setAba",
-      "setAbaAtual",
-      "setActiveTab",
-      "setTela",
-      "setTelaAtual",
-    ];
-
-    for (const fnName of candidates) {
-      try {
-        const fn = finance?.[fnName];
-        if (typeof fn === "function") {
-          // tenta com chave (ex: "lembretes") e também com path (ex: "/lembretes")
-          try { fn(key); } catch {}
-          try { fn("/" + key); } catch {}
-          try { fn(raw); } catch {}
-          // se qualquer uma funcionar, a tela troca no seu App
-          return;
-        }
-      } catch {}
-    }
-
-    // fallback: navega pela URL (hash/browser)
-    safeNavigateTo("/" + key);
-  }
-
   /* -------------------- ✅ AÇÕES: marcar como feito (com refletir nas abas) -------------------- */
   async function marcarFeitoAtual() {
     if (!itemModal) return;
@@ -800,7 +736,7 @@ export default function FinancasPage() {
       .sort((a, b) => a.when.getTime() - b.when.getTime());
 
     const todayAll = events.filter((e) => e.when.getTime() >= from.getTime() && e.when.getTime() <= to.getTime());
-    const today = todayAll.slice(0, 6); // aqui é só pra preview, mas você pediu só título mesmo
+    const today = todayAll.slice(0, 6);
     const upcoming = events.filter((e) => e.when.getTime() > to.getTime()).slice(0, 6);
 
     const days = Array.from({ length: 7 }).map((_, idx) => {
@@ -1057,8 +993,7 @@ export default function FinancasPage() {
               </div>
             </div>
 
-            {/* ✅ AGORA: na parte de lembretes e estudos aparece SÓ os TÍTULOS.
-                CLICOU NO TÍTULO -> ABRE MODAL do item, com detalhes + "Marcar como feito" + botão pra ir pra página */}
+            {/* ✅ SÓ TÍTULOS + MODAL */}
             <div
               style={{
                 display: "grid",
@@ -1083,9 +1018,6 @@ export default function FinancasPage() {
                       Hoje: <b>{lembretesCompact.todayCount}</b>
                     </div>
                   </div>
-                  <button className="toggle-btn" type="button" onClick={() => smartNavigateTo("/lembretes")}>
-                    Abrir
-                  </button>
                 </div>
 
                 {lembretesCompact.todayAll.length === 0 ? (
@@ -1144,9 +1076,6 @@ export default function FinancasPage() {
                       Hoje (pendente): <b>{estudosCompact.todayPendingCount}</b>
                     </div>
                   </div>
-                  <button className="toggle-btn" type="button" onClick={() => smartNavigateTo("/estudos")}>
-                    Abrir
-                  </button>
                 </div>
 
                 {estudosCompact.todayPendingAll.length === 0 ? (
@@ -1201,7 +1130,7 @@ export default function FinancasPage() {
         {/* ✅ FIM AGENDA */}
       </div>
 
-      {/* ✅ MODAL DO ITEM (UM POR VEZ) */}
+      {/* ✅ MODAL DO ITEM (UM POR VEZ) - SEM BOTÃO DE IR PARA PÁGINA */}
       {itemModalOpen && itemModal && (
         <div className="modal-overlay" onClick={closeItemModal}>
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
@@ -1225,7 +1154,6 @@ export default function FinancasPage() {
                     Quando: <b>{fmtShortBR(itemModal.when)} {fmtTimeHHmm(itemModal.when)}</b>
                   </div>
 
-                  {/* mostra campos extras se existirem */}
                   {itemModal.raw?.descricao ? (
                     <div className="muted small" style={{ marginTop: 8 }}>
                       <b>Descrição:</b> {String(itemModal.raw.descricao)}
@@ -1272,23 +1200,15 @@ export default function FinancasPage() {
               )}
             </div>
 
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
-              <button
-                className="toggle-btn toggle-active"
-                type="button"
-                onClick={() => smartNavigateTo(itemModal.tipo === "lembrete" ? "/lembretes" : "/estudos")}
-              >
-                Ir para página
-              </button>
-
-              <button className="toggle-btn" type="button" onClick={marcarFeitoAtual}>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
+              <button className="toggle-btn toggle-active" type="button" onClick={marcarFeitoAtual}>
                 ✅ Marcar como feito
               </button>
             </div>
 
             <p className="muted small" style={{ marginTop: 10 }}>
-              Obs.: Se o seu App.jsx tiver funções de salvar/marcar como feito, isso vai refletir automaticamente nas abas.
-              Se não tiver, eu já deixei fallback em localStorage para não “sumir” aqui.
+              Obs.: Se o seu App.jsx tiver funções de salvar/marcar como feito, isso vai refletir automaticamente.
+              Se não tiver, eu deixei fallback em localStorage para manter consistente.
             </p>
           </div>
         </div>
@@ -1372,7 +1292,12 @@ export default function FinancasPage() {
 
       {/* CATEGORIAS / SEMANAS */}
       <div className="grid-2 mt">
-        <div className="card" onClick={() => setModalCategorias(true)} style={{ cursor: "pointer" }} title="Clique para abrir detalhes">
+        <div
+          className="card"
+          onClick={() => setModalCategorias(true)}
+          style={{ cursor: "pointer" }}
+          title="Clique para abrir detalhes"
+        >
           <h3>Gasto por categoria</h3>
           <div className="pizza-chart-wrapper">
             <div className="pizza-chart" style={pizzaStyle} />
@@ -1385,10 +1310,12 @@ export default function FinancasPage() {
               <span className="legend-color legend-leisure" /> Lazer ({resumoAtual.pLazer.toFixed(0)}%)
             </div>
             <div className="legend-item">
-              <span className="legend-color" style={{ background: "#F59E0B" }} /> Burrice ({(resumoAtual.pBurrice || 0).toFixed(0)}%)
+              <span className="legend-color" style={{ background: "#F59E0B" }} /> Burrice (
+              {(resumoAtual.pBurrice || 0).toFixed(0)}%)
             </div>
             <div className="legend-item">
-              <span className="legend-color" style={{ background: "#10B981" }} /> Investido ({(resumoAtual.pInvestido || 0).toFixed(0)}%)
+              <span className="legend-color" style={{ background: "#10B981" }} /> Investido (
+              {(resumoAtual.pInvestido || 0).toFixed(0)}%)
             </div>
             <p className="muted small" style={{ marginTop: 8 }}>
               (Clique para abrir detalhes)
@@ -1396,7 +1323,12 @@ export default function FinancasPage() {
           </div>
         </div>
 
-        <div className="card" onClick={() => setModalCategorias(true)} style={{ cursor: "pointer" }} title="Clique para abrir detalhes">
+        <div
+          className="card"
+          onClick={() => setModalCategorias(true)}
+          style={{ cursor: "pointer" }}
+          title="Clique para abrir detalhes"
+        >
           <h3>Gastos por semana</h3>
           <div className="weeks-grid">
             {resumoAtual.semanas.map((v, i) => {
