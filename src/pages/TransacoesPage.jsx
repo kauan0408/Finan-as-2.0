@@ -7,6 +7,8 @@
 // - Timer de silêncio 3s continua funcionando
 // ✅ Corrigido: se detectar nome do cartão no texto, ASSUME crédito e seleciona o cartão
 // ✅ Corrigido (DATA/HORA): puxa SEMPRE data e hora atuais do aparelho (local) e salva com data+hora corretas
+// ✅ NOVO (pedido): na Receita, opção "Recebimento de empréstimo / reembolso" → SALVA como tipo "reembolso"
+//    (não conta como "receita" no resumo porque não é tipo "receita")
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useFinance } from "../App.jsx";
@@ -45,31 +47,6 @@ function clamp(n, min, max) {
   return Math.min(max, Math.max(min, n));
 }
 
-/* =========================================================
-   ✅ (NOVO) data padrão respeitando mesReferencia (setinha)
-   - Se você estiver em Fevereiro/2026, o lançamento cai em Fevereiro/2026
-   - Mantém o "dia de hoje" dentro do mês escolhido (limitando ao último dia do mês)
-   ========================================================= */
-function toInputDateInMesReferencia(mesReferencia, base = new Date()) {
-  const ano = Number(mesReferencia?.ano ?? base.getFullYear());
-  const mes0 = Number(mesReferencia?.mes ?? base.getMonth());
-
-  const lastDay = new Date(ano, mes0 + 1, 0).getDate();
-  const dia = Math.min(base.getDate(), lastDay);
-
-  const d = new Date(
-    ano,
-    mes0,
-    dia,
-    base.getHours(),
-    base.getMinutes(),
-    base.getSeconds(),
-    base.getMilliseconds()
-  );
-
-  return toInputDateLocal(d);
-}
-
 export default function TransacoesPage() {
   const { adicionarTransacao, cartoes, mesReferencia, transacoes } = useFinance();
 
@@ -85,6 +62,9 @@ export default function TransacoesPage() {
 
   const [parcelado, setParcelado] = useState(false);
   const [numeroParcelas, setNumeroParcelas] = useState(2);
+
+  // ✅ NOVO: quando for Receita, poder marcar como "reembolso/emprestado" (não conta como receita)
+  const [receitaEhReembolso, setReceitaEhReembolso] = useState(false);
 
   // ✅ DATA/HORA AUTOMÁTICAS (do aparelho) — NÃO depende de mesReferencia
   const [dataTransacao, setDataTransacao] = useState(() => toInputDateLocal(new Date()));
@@ -109,18 +89,6 @@ export default function TransacoesPage() {
     if (!dataFoiEditada) setDataTransacao(toInputDateLocal(now));
     if (!horaFoiEditada) setHoraTransacao(toInputTimeLocal(now));
   }, [mesReferencia, dataFoiEditada, horaFoiEditada]);
-
-  /* =========================================================
-     ✅ (NOVO) REGRA FINAL: se NÃO foi editada, a DATA do lançamento
-     deve cair no mês da setinha (mesReferencia).
-     - Isso sobrescreve a data "HOJE" acima, mas só quando pode.
-     ========================================================= */
-  useEffect(() => {
-    if (dataFoiEditada) return;
-    const now = new Date();
-    const d = toInputDateInMesReferencia(mesReferencia, now);
-    setDataTransacao(d);
-  }, [mesReferencia, dataFoiEditada]);
 
   const isDespesa = tipo === "despesa";
 
@@ -177,6 +145,7 @@ export default function TransacoesPage() {
       parceladoForm,
       numeroParcelasForm,
       dataBaseISO,
+      receitaEhReembolsoForm, // ✅ NOVO
     } = dados;
 
     const v = parseFloat(String(valorForm).replace(",", "."));
@@ -186,6 +155,10 @@ export default function TransacoesPage() {
     }
 
     const baseDate = dataBaseISO ? new Date(dataBaseISO) : new Date();
+
+    // ✅ NOVO: se for "receita" e marcou reembolso, salva como tipo "reembolso"
+    const tipoParaSalvar =
+      tipoForm === "receita" && receitaEhReembolsoForm ? "reembolso" : tipoForm;
 
     const isDespesaLocal = tipoForm === "despesa";
     const ehDespesaCreditoLocal =
@@ -227,7 +200,7 @@ export default function TransacoesPage() {
       mostrarMensagem(`Compra parcelada em ${n}x lançada.`);
     } else {
       listaParaSalvar.push({
-        tipo: tipoForm,
+        tipo: tipoParaSalvar, // ✅ aqui
         valor: v,
         descricao: descricaoForm,
         categoria: isDespesaLocal ? categoriaForm : null,
@@ -241,7 +214,11 @@ export default function TransacoesPage() {
         totalCompra: v,
       });
 
-      mostrarMensagem("Transação salva!");
+      if (tipoParaSalvar === "reembolso") {
+        mostrarMensagem("Reembolso/Acerto salvo! (não conta como receita)");
+      } else {
+        mostrarMensagem("Transação salva!");
+      }
     }
 
     listaParaSalvar.forEach((t) => adicionarTransacao(t));
@@ -255,6 +232,9 @@ export default function TransacoesPage() {
     setTipo("despesa");
     setParcelado(false);
     setNumeroParcelas(2);
+
+    // ✅ NOVO: reseta reembolso
+    setReceitaEhReembolso(false);
 
     setReviewText("");
     setReviewOpen(false);
@@ -341,6 +321,7 @@ export default function TransacoesPage() {
               parceladoForm: parcelado,
               numeroParcelasForm: numeroParcelas,
               dataBaseISO: baseISO,
+              receitaEhReembolsoForm: receitaEhReembolso, // ✅ NOVO
             },
             excedente,
             limite,
@@ -364,6 +345,7 @@ export default function TransacoesPage() {
       parceladoForm: parcelado,
       numeroParcelasForm: numeroParcelas,
       dataBaseISO: baseISO,
+      receitaEhReembolsoForm: receitaEhReembolso, // ✅ NOVO
     });
   };
 
@@ -377,6 +359,10 @@ export default function TransacoesPage() {
     if (novoTipo === "receita") {
       setFixo(false);
       setParcelado(false);
+      // mantém o valor atual do checkbox (não mexe)
+    } else {
+      // ✅ NOVO: ao sair de receita, desmarca reembolso
+      setReceitaEhReembolso(false);
     }
   };
 
@@ -449,6 +435,23 @@ export default function TransacoesPage() {
     const tOriginal = String(texto || "").trim();
     const tNorm = normalizeText(tOriginal);
 
+    // ✅ NOVO: detectar reembolso/emprestado (parte do amigo)
+    const reembolsoAuto =
+      tNorm.includes("reembolso") ||
+      tNorm.includes("reembols") ||
+      tNorm.includes("devolucao") ||
+      tNorm.includes("devolução") ||
+      tNorm.includes("acerto") ||
+      tNorm.includes("me devolveu") ||
+      tNorm.includes("me pagou") ||
+      tNorm.includes("me pagaram") ||
+      tNorm.includes("parte dele") ||
+      tNorm.includes("parte dela") ||
+      tNorm.includes("metade") ||
+      tNorm.includes("emprest") ||
+      tNorm.includes("devolveu o emprest") ||
+      tNorm.includes("pagou o emprest");
+
     // 1) Tipo
     let tipoAuto = "despesa";
     if (
@@ -460,6 +463,9 @@ export default function TransacoesPage() {
     ) {
       tipoAuto = "receita";
     }
+
+    // ✅ se detectar reembolso, força como "receita" (mas vai salvar como "reembolso" depois)
+    if (reembolsoAuto) tipoAuto = "receita";
 
     // 2) Valor
     let valorAuto = "";
@@ -503,9 +509,6 @@ export default function TransacoesPage() {
     let categoriaAuto = "Essencial";
     if (tNorm.includes("lazer")) categoriaAuto = "Lazer";
     if (tNorm.includes("essencial")) categoriaAuto = "Essencial";
-    if (tNorm.includes("burrice")) categoriaAuto = "Burrice";
-    if (tNorm.includes("investido") || tNorm.includes("investimento") || tNorm.includes("investir"))
-      categoriaAuto = "Investido";
 
     // 5) Parcelas
     let parceladoAuto = false;
@@ -565,8 +568,6 @@ export default function TransacoesPage() {
       "categoria",
       "essencial",
       "lazer",
-      "burrice",
-      "investido",
       "pix",
       "pics",
       "debito",
@@ -587,6 +588,15 @@ export default function TransacoesPage() {
       "vez",
       "vezes",
       "x",
+      // ✅ NOVO (stopwords leves pro reembolso)
+      "reembolso",
+      "reembols",
+      "devolucao",
+      "devolução",
+      "acerto",
+      "metade",
+      "emprestimo",
+      "empréstimo",
       ...stopCartoes,
     ]);
 
@@ -619,6 +629,7 @@ export default function TransacoesPage() {
       numeroParcelasAuto,
       dataAuto,
       textoOriginal: tOriginal,
+      reembolsoAuto, // ✅ NOVO
     };
   };
 
@@ -651,6 +662,9 @@ export default function TransacoesPage() {
       setDataTransacao(dados.dataAuto);
       setDataFoiEditada(true);
     }
+
+    // ✅ NOVO: aplica reembolso se foi detectado por voz
+    setReceitaEhReembolso(!!dados.reembolsoAuto);
 
     // ✅ mantém a hora atual quando veio por voz (não força)
     setReviewText(dados.textoOriginal || "");
@@ -922,43 +936,48 @@ export default function TransacoesPage() {
             Exemplos: <br />
             • "Despesa R$ 50 mercado essencial pix hoje" <br />
             • "120 tênis 3x nubank lazer" <br />
-            • "Receita 200 bico pix ontem"
+            • "Receita 200 bico pix ontem" <br />
+            • "Reembolso 35 pix parte do amigo hoje"
           </p>
         </div>
 
-        <form
-          className="form"
-          onSubmit={(e) => {
-            e.preventDefault();
-            // mantém como está, sem mudar nada do seu fluxo
-            confirmarSalvarAtual();
-          }}
-        >
+        <form className="form" onSubmit={handleSubmit}>
           <div className="field">
             <label>Tipo</label>
             <div className="toggle-group">
               <button
                 type="button"
                 className={"toggle-btn " + (tipo === "despesa" ? "toggle-active" : "")}
-                onClick={() => {
-                  setTipo("despesa");
-                }}
+                onClick={() => onChangeTipo("despesa")}
               >
                 Despesa
               </button>
               <button
                 type="button"
                 className={"toggle-btn " + (tipo === "receita" ? "toggle-active" : "")}
-                onClick={() => {
-                  setTipo("receita");
-                  setFixo(false);
-                  setParcelado(false);
-                }}
+                onClick={() => onChangeTipo("receita")}
               >
                 Receita
               </button>
             </div>
           </div>
+
+          {/* ✅ NOVO: opção dentro de Receita */}
+          {tipo === "receita" && (
+            <div className="field checkbox-field">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={receitaEhReembolso}
+                  onChange={(e) => setReceitaEhReembolso(e.target.checked)}
+                />{" "}
+                💸 Recebimento de empréstimo / reembolso (não conta como receita)
+              </label>
+              <p className="muted small" style={{ marginTop: 6 }}>
+                Ex.: você pagou algo para um amigo e ele te mandou a parte dele.
+              </p>
+            </div>
+          )}
 
           <div className="field">
             <label>Data da transação</label>
@@ -1003,35 +1022,23 @@ export default function TransacoesPage() {
               type="text"
               value={descricao}
               onChange={(e) => setDescricao(e.target.value)}
-              placeholder={tipo === "despesa" ? "Ex.: Aluguel, mercado..." : "Ex.: salário, extra"}
+              placeholder={isDespesa ? "Ex.: Aluguel, mercado..." : "Ex.: salário, extra"}
             />
           </div>
 
-          {tipo === "despesa" && (
+          {isDespesa && (
             <div className="field">
               <label>Categoria</label>
               <select value={categoria} onChange={(e) => setCategoria(e.target.value)}>
                 <option value="Essencial">Essencial</option>
                 <option value="Lazer">Lazer</option>
-                <option value="Burrice">Burrice</option>
-                <option value="Investido">Investido</option>
               </select>
             </div>
           )}
 
           <div className="field">
             <label>Forma de pagamento</label>
-            <select
-              value={formaPagamento}
-              onChange={(e) => {
-                const v = e.target.value;
-                setFormaPagamento(v);
-                if (v !== "credito") {
-                  setCartaoId("");
-                  setParcelado(false);
-                }
-              }}
-            >
+            <select value={formaPagamento} onChange={onChangeForma}>
               <option value="dinheiro">Dinheiro</option>
               <option value="debito">Débito</option>
               <option value="credito">Crédito</option>
@@ -1054,7 +1061,7 @@ export default function TransacoesPage() {
             </div>
           )}
 
-          {tipo === "despesa" && formaPagamento === "credito" && (
+          {isDespesa && formaPagamento === "credito" && (
             <>
               <div className="field checkbox-field">
                 <label>
@@ -1096,8 +1103,7 @@ export default function TransacoesPage() {
           <div className="modal-card">
             <h3>Confirmar lançamento?</h3>
             <p className="muted small" style={{ marginTop: 6 }}>
-              Eu esperei <strong>3 segundos de silêncio</strong> e preenchi os campos. Confira e
-              confirme.
+              Eu esperei <strong>3 segundos de silêncio</strong> e preenchi os campos. Confira e confirme.
             </p>
 
             <div className="card" style={{ marginTop: 10 }}>
@@ -1107,7 +1113,8 @@ export default function TransacoesPage() {
               <p style={{ marginBottom: 10 }}>"{reviewText}"</p>
 
               <p className="muted small">
-                <strong>Tipo:</strong> {tipo}
+                <strong>Tipo:</strong>{" "}
+                {tipo === "receita" && receitaEhReembolso ? "reembolso (não conta como receita)" : tipo}
                 <br />
                 <strong>Data:</strong> {dataTransacao || "-"}
                 <br />
@@ -1188,11 +1195,7 @@ export default function TransacoesPage() {
             </p>
 
             <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
-              <button
-                type="button"
-                className="primary-btn"
-                onClick={confirmarCompraEstourandoLimite}
-              >
+              <button type="button" className="primary-btn" onClick={confirmarCompraEstourandoLimite}>
                 ✅ Sim, lançar mesmo assim
               </button>
               <button
