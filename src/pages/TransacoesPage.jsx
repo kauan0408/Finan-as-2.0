@@ -509,6 +509,8 @@ export default function TransacoesPage() {
     let categoriaAuto = "Essencial";
     if (tNorm.includes("lazer")) categoriaAuto = "Lazer";
     if (tNorm.includes("essencial")) categoriaAuto = "Essencial";
+    // ✅ NOVO: detectar besteira/bestera
+    if (tNorm.includes("besteira") || tNorm.includes("bestera")) categoriaAuto = "Besteira";
 
     // 5) Parcelas
     let parceladoAuto = false;
@@ -568,6 +570,9 @@ export default function TransacoesPage() {
       "categoria",
       "essencial",
       "lazer",
+      // ✅ NOVO: stopword da categoria nova
+      "besteira",
+      "bestera",
       "pix",
       "pics",
       "debito",
@@ -1032,6 +1037,8 @@ export default function TransacoesPage() {
               <select value={categoria} onChange={(e) => setCategoria(e.target.value)}>
                 <option value="Essencial">Essencial</option>
                 <option value="Lazer">Lazer</option>
+                {/* ✅ NOVO: Best(e)ira */}
+                <option value="Besteira">Besteira</option>
               </select>
             </div>
           )}
