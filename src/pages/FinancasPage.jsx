@@ -8,88 +8,95 @@ function formatCurrency(value) {
   return num.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
-/* ✅ Próximo pagamento (dia do perfil + hoje)
-   - Se profile.diaPagamento = "5" => interpreta como 5º DIA ÚTIL
-   - Se quiser dia fixo do mês, use "dia 5" no Perfil
-*/
-function getNthBusinessDayDate(year, monthIndex, n) {
+/* ==================== ✅ DIAS ÚTEIS (seg-sex, sem feriados) ==================== */
+function isBusinessDay(d) {
+  const day = d.getDay(); // 0 dom, 6 sáb
+  return day !== 0 && day !== 6;
+}
+
+function nthBusinessDayOfMonth(year, month0, n) {
+  const N = Number(n || 0);
+  if (!N || N < 1) return null;
+
   let count = 0;
-  const d = new Date(year, monthIndex, 1);
-  while (d.getMonth() === monthIndex) {
-    const day = d.getDay(); // 0 dom, 6 sáb
-    const isBusinessDay = day !== 0 && day !== 6; // seg-sex
-    if (isBusinessDay) {
+  for (let day = 1; day <= 31; day++) {
+    const d = new Date(year, month0, day);
+    if (d.getMonth() !== month0) break; // passou do mês
+    if (isBusinessDay(d)) {
       count++;
-      if (count === n) return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      if (count === N) return d;
     }
-    d.setDate(d.getDate() + 1);
   }
-  return null;
+
+  // fallback: último dia útil do mês
+  for (let day = 31; day >= 1; day--) {
+    const d = new Date(year, month0, day);
+    if (d.getMonth() !== month0) continue;
+    if (isBusinessDay(d)) return d;
+  }
+
+  return new Date(year, month0, 1);
 }
 
-function parseDiaPagamentoToRule(diaPagamentoRaw) {
-  const s = String(diaPagamentoRaw || "").trim().toLowerCase();
-
-  // Ex.: "5º dia útil", "5 dia util"
-  if (s.includes("dia util") || s.includes("dia útil")) {
-    const m = s.match(/(\d+)/);
-    const n = m ? Number(m[1]) : NaN;
-    if (Number.isFinite(n) && n >= 1 && n <= 31) return { kind: "businessDay", n };
-  }
-
-  // ✅ Se digitar só "5" entende como DIA ÚTIL
-  if (/^\d{1,2}$/.test(s)) {
-    const n = Number(s);
-    if (Number.isFinite(n) && n >= 1 && n <= 31) return { kind: "businessDay", n };
-  }
-
-  // Ex.: "dia 10" (DIA DO MÊS)
-  const m2 = s.match(/\bdia\s+(\d{1,2})\b/);
-  const day = m2 ? Number(m2[1]) : NaN;
-  if (Number.isFinite(day) && day >= 1 && day <= 31) return { kind: "dayOfMonth", day };
-
-  return null;
+function startOfDay0(d) {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+function addDaysSafe(d, days) {
+  const x = new Date(d);
+  x.setDate(x.getDate() + Number(days || 0));
+  return x;
 }
 
-function calcularProximoPagamento(diaPagamentoRaw) {
-  const rule = parseDiaPagamentoToRule(diaPagamentoRaw);
-  if (!rule) return null;
+/**
+ * Ciclo por "N-ésimo dia útil":
+ * - começo do ciclo: (N-ésimo dia útil do mês) + 1 dia (ex: 5º dia útil -> começa dia seguinte)
+ * - fim do ciclo: N-ésimo dia útil do próximo mês (exclusivo)
+ */
+function cycleRangeByBusinessPayDay(year, month0, nthBiz) {
+  const payThis = nthBusinessDayOfMonth(year, month0, nthBiz);
+  if (!payThis) return null;
+
+  const start = startOfDay0(addDaysSafe(payThis, 1)); // começa no dia seguinte ao pagamento
+
+  const nextMonth0 = month0 === 11 ? 0 : month0 + 1;
+  const nextYear = month0 === 11 ? year + 1 : year;
+  const payNext = nthBusinessDayOfMonth(nextYear, nextMonth0, nthBiz) || new Date(nextYear, nextMonth0, 1);
+
+  const end = startOfDay0(payNext); // exclusivo
+  return { start, end, payThis: startOfDay0(payThis), payNext };
+}
+
+/* ✅ Próximo pagamento (N-ésimo dia útil) */
+function calcularProximoPagamento(diaPagamento) {
+  const nth = Number(diaPagamento);
+  if (!nth || nth < 1 || nth > 31) return null;
 
   const hoje = new Date();
+  const today0 = startOfDay0(hoje);
 
-  const criarDataCerta = (ano, mes, diaDesejado) => {
-    const ultimoDiaDoMes = new Date(ano, mes + 1, 0).getDate();
-    const d = Math.min(diaDesejado, ultimoDiaDoMes);
-    return new Date(ano, mes, d);
-  };
+  const y = hoje.getFullYear();
+  const m0 = hoje.getMonth();
 
-  const buildPayday = (year, monthIndex) => {
-    if (rule.kind === "businessDay") {
-      return getNthBusinessDayDate(year, monthIndex, rule.n);
-    }
-    // dayOfMonth
-    return criarDataCerta(year, monthIndex, rule.day);
-  };
+  const payThis = nthBusinessDayOfMonth(y, m0, nth);
+  if (!payThis) return null;
 
-  // pagamento deste mês
-  let proximo = buildPayday(hoje.getFullYear(), hoje.getMonth());
-  if (!proximo) return null;
+  const payThis0 = startOfDay0(payThis);
 
-  // comparar por dia (sem horas)
-  const h0 = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());
-  const p0 = new Date(proximo.getFullYear(), proximo.getMonth(), proximo.getDate());
+  let proximo = payThis0;
 
-  // ✅ Se hoje passou do dia de pagamento, vai para o próximo mês
-  // Se você quiser que NO DIA do pagamento já mostre o próximo mês, troque (h0 > p0) por (h0 >= p0)
-  if (h0 > p0) {
-    const ano2 = hoje.getFullYear();
-    const mes2 = hoje.getMonth() + 1;
-    proximo = buildPayday(ano2, mes2);
+  // se já passou do pagamento deste mês, vai pro do próximo mês
+  if (today0.getTime() > payThis0.getTime()) {
+    const mNext = m0 === 11 ? 0 : m0 + 1;
+    const yNext = m0 === 11 ? y + 1 : y;
+    const payNext = nthBusinessDayOfMonth(yNext, mNext, nth);
+    if (!payNext) return null;
+    proximo = startOfDay0(payNext);
   }
 
-  const diffMs = proximo - hoje;
-  const diffDias = Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
-
+  const diffMs = proximo.getTime() - today0.getTime();
+  const diffDias = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
   return { data: proximo, diasRestantes: diffDias };
 }
 
@@ -514,9 +521,7 @@ function classifyGroup(descricao, categoriaRaw = "") {
   )
     return "GASTOS_EMOCIONAIS";
 
-  // fallback: se já é “essencial” mas não bateu em nada, joga em “ESSENCIAIS_OUTROS”
   if (cat === "essencial") return "ESSENCIAIS_OUTROS";
-
   return "OUTROS";
 }
 
@@ -556,7 +561,6 @@ function blocoEstrategicoFromGroup(groupKey, categoriaRaw = "") {
   if (groupKey === "LAZER" || groupKey === "VESTUARIO" || groupKey === "PETS" || groupKey === "PRESENTES_E_EVENTOS" || groupKey === "FAMILIA")
     return "QUALIDADE";
 
-  // fallback: pelo campo categoria do app
   if (cat === "investido") return "CRESCIMENTO";
   if (cat === "lazer") return "QUALIDADE";
   if (cat === "essencial") return "ESSENCIAIS";
@@ -664,9 +668,25 @@ export default function FinancasPage() {
         }))
         .filter((g) => Number(g.valor) > 0);
 
+      // ✅ AQUI: define o "ciclo" baseado no N-ésimo dia útil.
+      // Se diaPagamento estiver definido (ex.: 5 = 5º dia útil),
+      // o mês selecionado passa a contar a partir do dia seguinte ao pagamento.
+      const nthBiz = Number(profile?.diaPagamento || 0) || 0;
+      const cycle = nthBiz ? cycleRangeByBusinessPayDay(ano, mes0, nthBiz) : null;
+
+      const inRange = (dt) => {
+        if (!dt || Number.isNaN(dt.getTime())) return false;
+
+        // fallback antigo (se não tiver diaPagamento)
+        if (!cycle) return dt.getMonth() === mes0 && dt.getFullYear() === ano;
+
+        const t = dt.getTime();
+        return t >= cycle.start.getTime() && t < cycle.end.getTime();
+      };
+
       (Array.isArray(transacoes) ? transacoes : []).forEach((t) => {
         const dt = new Date(t.dataHora);
-        if (dt.getMonth() === mes0 && dt.getFullYear() === ano) {
+        if (inRange(dt)) {
           const valor = Number(t.valor || 0);
           if (t.tipo === "receita") {
             receitas += valor;
@@ -681,6 +701,8 @@ export default function FinancasPage() {
             if (cat === "burrice") categorias.burrice += valor;
             if (cat === "investido") categorias.investido += valor;
 
+            // semanas: mantemos a visual, mas se estiver em ciclo,
+            // a semana é estimada pelo dia do mês do dt (não muda layout do app)
             const dia = dt.getDate();
             const semanaIndex = Math.min(3, Math.floor((dia - 1) / 7));
             semanas[semanaIndex] += valor;
@@ -706,7 +728,7 @@ export default function FinancasPage() {
       const mapa = new Map();
       (Array.isArray(transacoes) ? transacoes : []).forEach((t) => {
         const dt = new Date(t.dataHora);
-        if (t.tipo === "despesa" && dt.getMonth() === mes0 && dt.getFullYear() === ano) {
+        if (t.tipo === "despesa" && inRange(dt)) {
           const v = Number(t.valor || 0);
           if (!v) return;
           const key = normalizarNome(t.descricao || "Sem descrição");
@@ -748,6 +770,7 @@ export default function FinancasPage() {
         gastosFixos: gastosFixosPerfil,
         totalGastosFixos,
         despesasTransacoes,
+        _cycle: cycle, // (debug opcional, não aparece na UI)
       };
     };
 
@@ -764,7 +787,7 @@ export default function FinancasPage() {
     const pendenteAnterior = saldoPrevComSalario < 0 ? Math.abs(saldoPrevComSalario) : 0;
 
     return { resumoAtual, pendenteAnterior };
-  }, [transacoes, mesReferencia, profile?.gastosFixos, profile?.rendaMensal, profile?.salariosPorMes]);
+  }, [transacoes, mesReferencia, profile?.gastosFixos, profile?.rendaMensal, profile?.salariosPorMes, profile?.diaPagamento]);
 
   const { resumoAtual, pendenteAnterior } = resumo;
 
@@ -825,10 +848,22 @@ export default function FinancasPage() {
     const mes0 = mesReferencia?.mes ?? new Date().getMonth();
     const ano = mesReferencia?.ano ?? new Date().getFullYear();
 
+    // ✅ usa o MES selecionado, mas se houver diaPagamento (N-ésimo dia útil),
+    // filtra por CICLO do mês selecionado, igual ao resumo.
+    const nthBiz = Number(profile?.diaPagamento || 0) || 0;
+    const cycle = nthBiz ? cycleRangeByBusinessPayDay(ano, mes0, nthBiz) : null;
+
+    const inRange = (dt) => {
+      if (!dt || Number.isNaN(dt.getTime())) return false;
+      if (!cycle) return dt.getMonth() === mes0 && dt.getFullYear() === ano;
+      const t = dt.getTime();
+      return t >= cycle.start.getTime() && t < cycle.end.getTime();
+    };
+
     const despesasMes = (Array.isArray(transacoes) ? transacoes : [])
       .filter((t) => {
         const dt = new Date(t.dataHora);
-        return t.tipo === "despesa" && dt.getMonth() === mes0 && dt.getFullYear() === ano;
+        return t.tipo === "despesa" && inRange(dt);
       })
       .map((t) => ({
         id: t.id,
@@ -896,7 +931,6 @@ export default function FinancasPage() {
       else totalPorCategoria.outras += t.valor;
     });
 
-    // ✅ NOVO: classificação detalhada por grupos + blocos estratégicos
     const groupsOrder = [
       "MORADIA",
       "TRANSPORTE",
@@ -926,14 +960,12 @@ export default function FinancasPage() {
       if (!byGroup[group]) byGroup[group] = 0;
       byGroup[group] += Number(it.valor || 0);
 
-      // por descrição dentro do grupo
       const k = group + "::" + normalizarNome(it.descricao);
       const cur = byGroupDesc[k] || { group, descricao: it.descricao, total: 0, count: 0 };
       cur.total += Number(it.valor || 0);
       cur.count += 1;
       byGroupDesc[k] = cur;
 
-      // blocos estratégicos
       const bloco = blocoEstrategicoFromGroup(group, it.categoria);
       if (!blocos[bloco]) blocos[bloco] = 0;
       blocos[bloco] += Number(it.valor || 0);
@@ -973,12 +1005,10 @@ export default function FinancasPage() {
       foodPorCategoria,
       totalPorCategoria,
       tudoCount: tudo.length,
-
-      // ✅ NOVO
       groupsList,
       blocosList,
     };
-  }, [transacoes, mesReferencia, resumoAtual.gastosFixos]);
+  }, [transacoes, mesReferencia, resumoAtual.gastosFixos, profile?.diaPagamento]);
 
   /* -------------------- lembretes (compacto) + fallback + sync local -------------------- */
   const [lembretesFallback, setLembretesFallback] = useState([]);
@@ -1332,7 +1362,7 @@ export default function FinancasPage() {
                   {" • "}
                   {diaPagamento ? (
                     <>
-                      <b>Dia {diaPagamento}</b>
+                      <b>{diaPagamento}º dia útil</b>
                       {proximoPag ? <> • Próx. em {proximoPag.diasRestantes} dia(s)</> : null}
                     </>
                   ) : (
