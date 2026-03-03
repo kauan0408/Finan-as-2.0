@@ -8,10 +8,52 @@ function formatCurrency(value) {
   return num.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
-/* ✅ Próximo pagamento (dia do perfil + hoje) */
-function calcularProximoPagamento(diaPagamento) {
-  const dia = Number(diaPagamento);
-  if (!dia || dia < 1 || dia > 31) return null;
+/* ✅ Próximo pagamento (dia do perfil + hoje)
+   - Se profile.diaPagamento = "5" => interpreta como 5º DIA ÚTIL
+   - Se quiser dia fixo do mês, use "dia 5" no Perfil
+*/
+function getNthBusinessDayDate(year, monthIndex, n) {
+  let count = 0;
+  const d = new Date(year, monthIndex, 1);
+  while (d.getMonth() === monthIndex) {
+    const day = d.getDay(); // 0 dom, 6 sáb
+    const isBusinessDay = day !== 0 && day !== 6; // seg-sex
+    if (isBusinessDay) {
+      count++;
+      if (count === n) return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    }
+    d.setDate(d.getDate() + 1);
+  }
+  return null;
+}
+
+function parseDiaPagamentoToRule(diaPagamentoRaw) {
+  const s = String(diaPagamentoRaw || "").trim().toLowerCase();
+
+  // Ex.: "5º dia útil", "5 dia util"
+  if (s.includes("dia util") || s.includes("dia útil")) {
+    const m = s.match(/(\d+)/);
+    const n = m ? Number(m[1]) : NaN;
+    if (Number.isFinite(n) && n >= 1 && n <= 31) return { kind: "businessDay", n };
+  }
+
+  // ✅ Se digitar só "5" entende como DIA ÚTIL
+  if (/^\d{1,2}$/.test(s)) {
+    const n = Number(s);
+    if (Number.isFinite(n) && n >= 1 && n <= 31) return { kind: "businessDay", n };
+  }
+
+  // Ex.: "dia 10" (DIA DO MÊS)
+  const m2 = s.match(/\bdia\s+(\d{1,2})\b/);
+  const day = m2 ? Number(m2[1]) : NaN;
+  if (Number.isFinite(day) && day >= 1 && day <= 31) return { kind: "dayOfMonth", day };
+
+  return null;
+}
+
+function calcularProximoPagamento(diaPagamentoRaw) {
+  const rule = parseDiaPagamentoToRule(diaPagamentoRaw);
+  if (!rule) return null;
 
   const hoje = new Date();
 
@@ -21,16 +63,33 @@ function calcularProximoPagamento(diaPagamento) {
     return new Date(ano, mes, d);
   };
 
-  let proximo = criarDataCerta(hoje.getFullYear(), hoje.getMonth(), dia);
+  const buildPayday = (year, monthIndex) => {
+    if (rule.kind === "businessDay") {
+      return getNthBusinessDayDate(year, monthIndex, rule.n);
+    }
+    // dayOfMonth
+    return criarDataCerta(year, monthIndex, rule.day);
+  };
 
-  if (proximo < hoje) {
+  // pagamento deste mês
+  let proximo = buildPayday(hoje.getFullYear(), hoje.getMonth());
+  if (!proximo) return null;
+
+  // comparar por dia (sem horas)
+  const h0 = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());
+  const p0 = new Date(proximo.getFullYear(), proximo.getMonth(), proximo.getDate());
+
+  // ✅ Se hoje passou do dia de pagamento, vai para o próximo mês
+  // Se você quiser que NO DIA do pagamento já mostre o próximo mês, troque (h0 > p0) por (h0 >= p0)
+  if (h0 > p0) {
     const ano2 = hoje.getFullYear();
     const mes2 = hoje.getMonth() + 1;
-    proximo = criarDataCerta(ano2, mes2, dia);
+    proximo = buildPayday(ano2, mes2);
   }
 
   const diffMs = proximo - hoje;
-  const diffDias = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+  const diffDias = Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+
   return { data: proximo, diasRestantes: diffDias };
 }
 
