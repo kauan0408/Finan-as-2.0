@@ -17,15 +17,15 @@ import ReceitasPage from "./pages/ReceitasPage.jsx";
 // ✅ CASA
 import DivisaoCasaPage from "./pages/DivisaoCasaPage.jsx";
 
-// ✅ ESTUDOS
+// ✅ ESTUDOS (NOVA)
 import EstudosPage from "./pages/EstudosPage.jsx";
 
-// 🔐 Firebase
+// 🔐 Firebase (login Google + banco de dados)
 import { auth, loginComGoogle, logout, db } from "./firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, onSnapshot, setDoc, getDoc } from "firebase/firestore";
 
-/* ---------------- CONTEXTO ---------------- */
+/* ---------------- CONTEXTO DE FINANÇAS ---------------- */
 
 const FinanceContext = createContext(null);
 
@@ -33,8 +33,7 @@ export function useFinance() {
   return useContext(FinanceContext);
 }
 
-/* ---------------- helpers localStorage ---------------- */
-
+/* Helpers para localStorage */
 function loadFromStorage(key, defaultValue) {
   if (typeof window === "undefined") return defaultValue;
   try {
@@ -65,12 +64,7 @@ function generateId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2);
 }
 
-/* ==========================================================
-   ✅ MÊS DE REFERÊNCIA PELO DIA DE PAGAMENTO
-   - suporta: "5º dia útil" / "5 dia util" / "dia 5"
-   - se digitar só "5": CONTINUA SENDO 5º DIA ÚTIL (como você queria)
-   ========================================================== */
-
+/* ✅ Regras de “virar o mês” no dia de pagamento (inclui “dia útil”) */
 function getNthBusinessDayDate(year, monthIndex, n) {
   let count = 0;
   const d = new Date(year, monthIndex, 1);
@@ -86,7 +80,7 @@ function getNthBusinessDayDate(year, monthIndex, n) {
   return null;
 }
 
-export function parseDiaPagamentoToRule(diaPagamentoRaw) {
+function parseDiaPagamentoToRule(diaPagamentoRaw) {
   const s = String(diaPagamentoRaw || "").trim().toLowerCase();
 
   // Ex.: "5º dia útil", "5 dia util", "5º dia util"
@@ -96,7 +90,7 @@ export function parseDiaPagamentoToRule(diaPagamentoRaw) {
     if (Number.isFinite(n) && n >= 1 && n <= 31) return { kind: "businessDay", n };
   }
 
-  // ✅ Se digitar só "5" entende como 5º DIA ÚTIL
+  // ✅ Se digitar só "5" entende como DIA ÚTIL
   if (/^\d{1,2}$/.test(s)) {
     const n = Number(s);
     if (Number.isFinite(n) && n >= 1 && n <= 31) return { kind: "businessDay", n };
@@ -110,45 +104,36 @@ export function parseDiaPagamentoToRule(diaPagamentoRaw) {
   return null;
 }
 
-function calcPaydayDateForMonth(rule, year, monthIndex) {
-  if (!rule) return null;
-
-  if (rule.kind === "businessDay") {
-    return getNthBusinessDayDate(year, monthIndex, rule.n);
-  }
-
-  if (rule.kind === "dayOfMonth") {
-    const lastDay = new Date(year, monthIndex + 1, 0).getDate();
-    const dd = Math.min(lastDay, rule.day);
-    return new Date(year, monthIndex, dd);
-  }
-
-  return null;
-}
-
-export function calcMesRefByPayday(diaPagamentoRaw) {
+function calcMesRefByPayday(diaPagamentoRaw) {
   const rule = parseDiaPagamentoToRule(diaPagamentoRaw);
   const today = new Date();
   const y = today.getFullYear();
   const m = today.getMonth();
 
-  // sem regra -> mês real
   if (!rule) return { mes: m, ano: y };
 
-  const payday = calcPaydayDateForMonth(rule, y, m);
+  let payday = null;
+
+  if (rule.kind === "businessDay") {
+    payday = getNthBusinessDayDate(y, m, rule.n);
+  } else if (rule.kind === "dayOfMonth") {
+    const lastDay = new Date(y, m + 1, 0).getDate();
+    const dd = Math.min(lastDay, rule.day);
+    payday = new Date(y, m, dd);
+  }
+
   if (!payday) return { mes: m, ano: y };
 
-  // compara só data (sem horas)
-  const t0 = new Date(y, m, today.getDate());
+  const t0 = new Date(today.getFullYear(), today.getMonth(), today.getDate());
   const p0 = new Date(payday.getFullYear(), payday.getMonth(), payday.getDate());
 
-  // ✅ antes do dia de pagamento -> mês financeiro ainda é o anterior
-  if (t0.getTime() < p0.getTime()) {
+  // ✅ CORREÇÃO: se hoje é o dia do pagamento (5º dia útil), AINDA é mês anterior.
+  // Só vira a partir do dia seguinte (6º dia útil).
+  if (t0 <= p0) {
     const prev = new Date(y, m - 1, 1);
     return { mes: prev.getMonth(), ano: prev.getFullYear() };
   }
 
-  // ✅ no dia do pagamento ou depois -> mês financeiro é o atual
   return { mes: m, ano: y };
 }
 
@@ -209,8 +194,7 @@ function keepOnlyTwoMonths(porMes, realKey) {
   return next;
 }
 
-/* ---------------- Defaults ---------------- */
-
+/* Valores padrão */
 const DEFAULT_PROFILE = {
   nome: "",
   rendaMensal: "",
@@ -230,8 +214,11 @@ const DEFAULT_RESERVA = {
 const DEFAULT_LISTA = [];
 const DEFAULT_LEMBRETES = [];
 const DEFAULT_RECEITAS = [];
+
+// ✅ ESTUDOS (NOVO)
 const DEFAULT_ESTUDOS = [];
 
+// ✅ DEFAULT DA CASA (LOCAL APENAS)
 const DEFAULT_DIVISAO_CASA = {
   casaNome: "Gastos da Casa",
   modoDivisao: "igual",
@@ -247,7 +234,7 @@ const DEFAULT_DIVISAO_CASA = {
 // ✅ chave local (por aparelho) — NÃO vai pra nuvem
 const CASA_LOCAL_KEY = "divisaoCasa_local_v1";
 
-/* ---------------- APP ---------------- */
+/* ---------------- COMPONENTE PRINCIPAL ---------------- */
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -263,6 +250,7 @@ export default function App() {
   const [lembretes, setLembretes] = useState(DEFAULT_LEMBRETES);
   const [receitas, setReceitas] = useState(DEFAULT_RECEITAS);
 
+  // ✅ ESTUDOS (NOVO)
   const [estudos, setEstudos] = useState(DEFAULT_ESTUDOS);
 
   // ✅ CASA (LOCAL)
@@ -352,12 +340,13 @@ export default function App() {
   // ✅ CASA LOCAL: carregar do aparelho 1x
   // ==========================================================
   useEffect(() => {
+    // carrega SEM depender de login (é local do aparelho)
     const localRaw = loadFromStorage(CASA_LOCAL_KEY, null);
     const mesRealRef = calcMesRefByPayday(profile?.diaPagamento);
     const realKey = monthKeyFromRef(mesRealRef);
 
     if (localRaw && typeof localRaw === "object") {
-      setDivisaoCasa(() => ({
+      setDivisaoCasa((prev) => ({
         ...DEFAULT_DIVISAO_CASA,
         ...localRaw,
         porMes: keepOnlyTwoMonths(localRaw?.porMes, realKey),
@@ -383,8 +372,10 @@ export default function App() {
       porMes: keepOnlyTwoMonths(divisaoCasa?.porMes, realKey),
     };
 
+    // salva no storage LOCAL do aparelho
     saveToStorage(CASA_LOCAL_KEY, clean);
 
+    // garante que o state também fique "limpo" (2 meses)
     setDivisaoCasa((prev) => {
       const prevObj = prev && typeof prev === "object" ? prev : DEFAULT_DIVISAO_CASA;
       const prevPorMes = prevObj.porMes && typeof prevObj.porMes === "object" ? prevObj.porMes : {};
@@ -393,7 +384,8 @@ export default function App() {
       const prevKeys = Object.keys(prevPorMes);
       const nextKeys = Object.keys(cleaned);
       const same =
-        prevKeys.length === nextKeys.length && nextKeys.every((k) => prevPorMes[k] === cleaned[k]);
+        prevKeys.length === nextKeys.length &&
+        nextKeys.every((k) => prevPorMes[k] === cleaned[k]);
 
       if (same) return prevObj;
       return { ...prevObj, porMes: cleaned };
@@ -401,7 +393,7 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [divisaoCasa, profile?.diaPagamento]);
 
-  // ✅ Aba atual
+  // ✅ Aba atual geral
   const [abaAtiva, setAbaAtiva] = useState("financas");
 
   // ✅ MENU ⋯
@@ -410,7 +402,10 @@ export default function App() {
   const itensMenuMais = useMemo(
     () => [
       { key: "financas", label: "💰 Finanças" },
+
+      // ✅ ESTUDOS (NOVO)
       { key: "estudos", label: "📚 Estudos" },
+
       { key: "lista", label: "🛒 Lista" },
       { key: "lembretes", label: "⏰ Lembretes" },
       { key: "receitas", label: "🍳 Receitas" },
@@ -425,20 +420,25 @@ export default function App() {
   }
 
   const mostrarMenuInferior = useMemo(() => {
-    return ["financas", "reserva", "transacoes", "cartoes", "historico", "perfil"].includes(abaAtiva);
+    return ["financas", "reserva", "transacoes", "cartoes", "historico", "perfil"].includes(
+      abaAtiva
+    );
   }, [abaAtiva]);
 
-  /* ------- LOGIN / LOGOUT ------- */
+  /* ------- MONITORA LOGIN / LOGOUT ------- */
+
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (firebaseUser) => {
       setUser(firebaseUser || null);
       setAuthLoading(false);
       setDadosCarregados(false);
     });
+
     return () => unsub();
   }, []);
 
   /* ------- 1) CARREGAR DADOS (NUVEM) ------- */
+
   useEffect(() => {
     if (!user) return;
 
@@ -463,6 +463,7 @@ export default function App() {
           const lembretesCloud = data.lembretes || DEFAULT_LEMBRETES;
           const receitasCloud = data.receitas || DEFAULT_RECEITAS;
 
+          // ✅ ESTUDOS
           const estudosCloud = data.estudos || DEFAULT_ESTUDOS;
 
           setProfile(perfilCloud);
@@ -485,7 +486,10 @@ export default function App() {
           saveToStorage(`lembretes_${uid}`, lembretesCloud);
           saveToStorage(`receitas_${uid}`, receitasCloud);
 
+          // ✅ estudos local backup
           saveToStorage(`estudos_${uid}`, estudosCloud);
+
+          // ✅ NÃO salva divisaoCasa no uid (é local do aparelho)
         } else {
           const storedProfile = loadFromStorage(`profile_${uid}`, null);
           const storedTransacoes = loadFromStorage(`transacoes_${uid}`, null);
@@ -496,6 +500,7 @@ export default function App() {
           const storedLembretes = loadFromStorage(`lembretes_${uid}`, null);
           const storedReceitas = loadFromStorage(`receitas_${uid}`, null);
 
+          // ✅ estudos
           const storedEstudos = loadFromStorage(`estudos_${uid}`, null);
 
           const perfilInicial = storedProfile || DEFAULT_PROFILE;
@@ -530,22 +535,24 @@ export default function App() {
               lista: listaInicial,
               lembretes: lembretesIniciais,
               receitas: receitasIniciais,
+
+              // ✅ estudos
               estudos: estudosIniciais,
+
+              // ✅ NÃO envia divisaoCasa (local)
             },
             { merge: true }
           );
         }
 
-        // ✅ RESTAURA MÊS/AUTO DO STORAGE DO USUÁRIO
+        // ✅ RESTAURA MÊS/ AUTO DO STORAGE DO USUÁRIO
         const storedMesAuto = loadFromStorage(`mesAuto_${uid}`, null);
         const storedMesRef = loadFromStorage(`mesRef_${uid}`, null);
 
         if (typeof storedMesAuto === "boolean") {
           setMesAuto(storedMesAuto);
-
           if (storedMesAuto === true) {
-            const dia = (snap.data()?.profile || profile)?.diaPagamento;
-            const ref = calcMesRefByPayday(dia);
+            const ref = calcMesRefByPayday((snap.data()?.profile || profile)?.diaPagamento);
             setMesReferencia(ref);
             persistMesRef(uid, ref);
           } else {
@@ -562,8 +569,7 @@ export default function App() {
             }
           }
         } else {
-          const dia = (snap.data()?.profile || profile)?.diaPagamento;
-          const ref = calcMesRefByPayday(dia);
+          const ref = calcMesRefByPayday((snap.data()?.profile || profile)?.diaPagamento);
           setMesAuto(true);
           setMesReferencia(ref);
           persistMesAuto(uid, true);
@@ -585,7 +591,10 @@ export default function App() {
           if (data.lembretes) setLembretes(data.lembretes);
           if (data.receitas) setReceitas(data.receitas);
 
+          // ✅ estudos
           if (data.estudos) setEstudos(data.estudos);
+
+          // ✅ NÃO sincroniza divisaoCasa (local)
         });
       } catch (err) {
         console.error("Erro ao carregar dados iniciais do Firestore:", err);
@@ -600,6 +609,7 @@ export default function App() {
         const storedLembretes = loadFromStorage(`lembretes_${uid}`, DEFAULT_LEMBRETES);
         const storedReceitas = loadFromStorage(`receitas_${uid}`, DEFAULT_RECEITAS);
 
+        // ✅ estudos
         const storedEstudos = loadFromStorage(`estudos_${uid}`, DEFAULT_ESTUDOS);
 
         setProfile(storedProfile);
@@ -617,7 +627,6 @@ export default function App() {
         const storedMesRef = loadFromStorage(`mesRef_${uid}`, null);
 
         setMesAuto(!!storedMesAuto);
-
         if (storedMesAuto) {
           const ref = calcMesRefByPayday(storedProfile?.diaPagamento);
           setMesReferencia(ref);
@@ -641,10 +650,10 @@ export default function App() {
     return () => {
       if (unsubSnapshot) unsubSnapshot();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
   /* ------- 2) SALVAR NA NUVEM (SEM CASA) ------- */
+
   useEffect(() => {
     if (!user || !dadosCarregados) return;
 
@@ -659,7 +668,11 @@ export default function App() {
       lista,
       lembretes,
       receitas,
+
+      // ✅ estudos
       estudos,
+
+      // ✅ NÃO envia divisaoCasa (local)
     };
 
     saveToStorage(`profile_${uid}`, profile);
@@ -671,6 +684,7 @@ export default function App() {
     saveToStorage(`lembretes_${uid}`, lembretes);
     saveToStorage(`receitas_${uid}`, receitas);
 
+    // ✅ estudos local backup
     saveToStorage(`estudos_${uid}`, estudos);
 
     if (!navigator.onLine) {
@@ -679,7 +693,9 @@ export default function App() {
     }
 
     setDoc(userDocRef, payload, { merge: true })
-      .then(() => saveToStorage(`pendingSync_${uid}`, null))
+      .then(() => {
+        saveToStorage(`pendingSync_${uid}`, null);
+      })
       .catch((err) => {
         console.error("Erro ao salvar dados no Firestore:", err);
         saveToStorage(`pendingSync_${uid}`, payload);
@@ -687,6 +703,7 @@ export default function App() {
   }, [user, dadosCarregados, profile, transacoes, cartoes, reserva, lista, lembretes, receitas, estudos]);
 
   /* ------- 3) SINCRONIZAR PENDÊNCIAS ------- */
+
   useEffect(() => {
     if (!user || !dadosCarregados) return;
 
@@ -711,7 +728,7 @@ export default function App() {
     return () => window.removeEventListener("online", syncPendentes);
   }, [user, dadosCarregados]);
 
-  /* ------- FUNÇÕES DO CONTEXTO ------- */
+  /* ------- FUNÇÕES PARA O CONTEXTO ------- */
 
   const atualizarProfile = (novosDados) => {
     setProfile((prev) => ({ ...prev, ...novosDados }));
@@ -721,7 +738,6 @@ export default function App() {
     const nova = {
       ...dados,
       id: generateId(),
-      // ✅ lança no mês que você está vendo em Finanças
       dataHora: dados.dataHora || makeISOInMesReferencia(mesReferencia),
     };
     setTransacoes((prev) => [nova, ...prev]);
@@ -754,7 +770,7 @@ export default function App() {
     setReserva((prev) => ({ ...prev, ...novosDados }));
   };
 
-  // ✅ navegação interna por aba
+  // ✅ NOVO: função simples para trocar aba via contexto
   const irParaAba = (key) => {
     try {
       setAbaAtiva(String(key || "financas"));
@@ -783,12 +799,15 @@ export default function App() {
       receitas,
       setReceitas,
 
+      // ✅ estudos
       estudos,
       setEstudos,
 
+      // ✅ CASA LOCAL (não sincroniza)
       divisaoCasa,
       setDivisaoCasa,
 
+      // ✅ mês global
       mesReferencia,
       mudarMesReferencia,
       irParaMesAtual,
@@ -796,6 +815,7 @@ export default function App() {
       setMesAuto,
       setMesReferenciaManual,
 
+      // ✅ NOVO: navegação interna por aba
       abaAtiva,
       setAbaAtiva,
       irParaAba,
@@ -828,6 +848,7 @@ export default function App() {
       pagina = <FinancasPage />;
       break;
 
+    // ✅ ESTUDOS (NOVO)
     case "estudos":
       pagina = <EstudosPage />;
       break;
@@ -835,15 +856,12 @@ export default function App() {
     case "lista":
       pagina = <ListaPage />;
       break;
-
     case "lembretes":
       pagina = <LembretesPage />;
       break;
-
     case "receitas":
       pagina = <ReceitasPage />;
       break;
-
     case "casa":
       pagina = <DivisaoCasaPage />;
       break;
@@ -851,28 +869,23 @@ export default function App() {
     case "reserva":
       pagina = <ReservaPage />;
       break;
-
     case "transacoes":
       pagina = <TransacoesPage />;
       break;
-
     case "cartoes":
       pagina = <CartoesPage />;
       break;
-
     case "historico":
       pagina = <HistoricoPage />;
       break;
-
     case "perfil":
       pagina = <PerfilPage />;
       break;
-
     default:
       pagina = <FinancasPage />;
   }
 
-  /* ------- LOADING LOGIN ------- */
+  /* ------- TELA ENQUANTO VERIFICA LOGIN ------- */
 
   if (authLoading) {
     return (
@@ -950,14 +963,7 @@ export default function App() {
 
         <div className="app-overlay">
           <header className="app-header">
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 10,
-              }}
-            >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
               <h1 className="app-title">Finanças Offline</h1>
 
               <button
