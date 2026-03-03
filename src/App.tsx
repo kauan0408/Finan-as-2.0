@@ -70,7 +70,8 @@ function getNthBusinessDayDate(year, monthIndex, n) {
   const d = new Date(year, monthIndex, 1);
   while (d.getMonth() === monthIndex) {
     const day = d.getDay(); // 0 dom, 6 sáb
-    const isBusinessDay = day !== 0 && day !== 6; // seg-sex
+    // ✅ DIA ÚTIL = SEG–SÁB (domingo NÃO é útil)
+    const isBusinessDay = day !== 0;
     if (isBusinessDay) {
       count++;
       if (count === n) return new Date(d.getFullYear(), d.getMonth(), d.getDate());
@@ -85,21 +86,21 @@ function parseDiaPagamentoToRule(diaPagamentoRaw) {
 
   // Ex.: "5º dia útil", "5 dia util", "5º dia util"
   if (s.includes("dia util") || s.includes("dia útil")) {
-    const m = s.match(/(\d+)/);
+    const m = s.match(/(\d{1,2})/);
     const n = m ? Number(m[1]) : NaN;
     if (Number.isFinite(n) && n >= 1 && n <= 31) return { kind: "businessDay", n };
   }
 
-  // ✅ Se digitar só "5" entende como DIA ÚTIL
+  // ✅ Se digitar só "15" entende como DIA DO MÊS (não dia útil)
   if (/^\d{1,2}$/.test(s)) {
-    const n = Number(s);
-    if (Number.isFinite(n) && n >= 1 && n <= 31) return { kind: "businessDay", n };
+    const day = Number(s);
+    if (Number.isFinite(day) && day >= 1 && day <= 31) return { kind: "dayOfMonth", day };
   }
 
   // Ex.: "dia 10" (DIA DO MÊS)
   const m2 = s.match(/\bdia\s+(\d{1,2})\b/);
-  const day = m2 ? Number(m2[1]) : NaN;
-  if (Number.isFinite(day) && day >= 1 && day <= 31) return { kind: "dayOfMonth", day };
+  const day2 = m2 ? Number(m2[1]) : NaN;
+  if (Number.isFinite(day2) && day2 >= 1 && day2 <= 31) return { kind: "dayOfMonth", day: day2 };
 
   return null;
 }
@@ -381,8 +382,7 @@ export default function App() {
       const prevKeys = Object.keys(prevPorMes);
       const nextKeys = Object.keys(cleaned);
       const same =
-        prevKeys.length === nextKeys.length &&
-        nextKeys.every((k) => prevPorMes[k] === cleaned[k]);
+        prevKeys.length === nextKeys.length && nextKeys.every((k) => prevPorMes[k] === cleaned[k]);
 
       if (same) return prevObj;
       return { ...prevObj, porMes: cleaned };
@@ -399,10 +399,7 @@ export default function App() {
   const itensMenuMais = useMemo(
     () => [
       { key: "financas", label: "💰 Finanças" },
-
-      // ✅ ESTUDOS (NOVO)
       { key: "estudos", label: "📚 Estudos" },
-
       { key: "lista", label: "🛒 Lista" },
       { key: "lembretes", label: "⏰ Lembretes" },
       { key: "receitas", label: "🍳 Receitas" },
@@ -417,9 +414,7 @@ export default function App() {
   }
 
   const mostrarMenuInferior = useMemo(() => {
-    return ["financas", "reserva", "transacoes", "cartoes", "historico", "perfil"].includes(
-      abaAtiva
-    );
+    return ["financas", "reserva", "transacoes", "cartoes", "historico", "perfil"].includes(abaAtiva);
   }, [abaAtiva]);
 
   /* ------- MONITORA LOGIN / LOGOUT ------- */
@@ -532,11 +527,7 @@ export default function App() {
               lista: listaInicial,
               lembretes: lembretesIniciais,
               receitas: receitasIniciais,
-
-              // ✅ estudos
               estudos: estudosIniciais,
-
-              // ✅ NÃO envia divisaoCasa (local)
             },
             { merge: true }
           );
@@ -812,7 +803,7 @@ export default function App() {
       setMesAuto,
       setMesReferenciaManual,
 
-      // ✅ NOVO: navegação interna por aba (ISSO resolve seu problema)
+      // ✅ navegação interna por aba
       abaAtiva,
       setAbaAtiva,
       irParaAba,
@@ -845,7 +836,6 @@ export default function App() {
       pagina = <FinancasPage />;
       break;
 
-    // ✅ ESTUDOS (NOVO)
     case "estudos":
       pagina = <EstudosPage />;
       break;
@@ -960,7 +950,14 @@ export default function App() {
 
         <div className="app-overlay">
           <header className="app-header">
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 10,
+              }}
+            >
               <h1 className="app-title">Finanças Offline</h1>
 
               <button
@@ -981,42 +978,54 @@ export default function App() {
           {mostrarMenuInferior && (
             <nav className="bottom-nav">
               <button
-                className={"bottom-nav-item " + (abaAtiva === "financas" ? "bottom-nav-item-active" : "")}
+                className={
+                  "bottom-nav-item " + (abaAtiva === "financas" ? "bottom-nav-item-active" : "")
+                }
                 onClick={() => setAbaAtiva("financas")}
               >
                 💰 Finanças
               </button>
 
               <button
-                className={"bottom-nav-item " + (abaAtiva === "reserva" ? "bottom-nav-item-active" : "")}
+                className={
+                  "bottom-nav-item " + (abaAtiva === "reserva" ? "bottom-nav-item-active" : "")
+                }
                 onClick={() => setAbaAtiva("reserva")}
               >
                 🛟 Reserva
               </button>
 
               <button
-                className={"bottom-nav-item " + (abaAtiva === "transacoes" ? "bottom-nav-item-active" : "")}
+                className={
+                  "bottom-nav-item " + (abaAtiva === "transacoes" ? "bottom-nav-item-active" : "")
+                }
                 onClick={() => setAbaAtiva("transacoes")}
               >
                 📥 Transações
               </button>
 
               <button
-                className={"bottom-nav-item " + (abaAtiva === "cartoes" ? "bottom-nav-item-active" : "")}
+                className={
+                  "bottom-nav-item " + (abaAtiva === "cartoes" ? "bottom-nav-item-active" : "")
+                }
                 onClick={() => setAbaAtiva("cartoes")}
               >
                 💳 Cartões
               </button>
 
               <button
-                className={"bottom-nav-item " + (abaAtiva === "historico" ? "bottom-nav-item-active" : "")}
+                className={
+                  "bottom-nav-item " + (abaAtiva === "historico" ? "bottom-nav-item-active" : "")
+                }
                 onClick={() => setAbaAtiva("historico")}
               >
                 📜 Histórico
               </button>
 
               <button
-                className={"bottom-nav-item " + (abaAtiva === "perfil" ? "bottom-nav-item-active" : "")}
+                className={
+                  "bottom-nav-item " + (abaAtiva === "perfil" ? "bottom-nav-item-active" : "")
+                }
                 onClick={() => setAbaAtiva("perfil")}
               >
                 👤 Perfil
