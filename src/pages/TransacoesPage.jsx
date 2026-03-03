@@ -9,6 +9,7 @@
 // ✅ Corrigido (DATA/HORA): puxa SEMPRE data e hora atuais do aparelho (local) e salva com data+hora corretas
 // ✅ NOVO (pedido): na Receita, opção "Recebimento de empréstimo / reembolso" → SALVA como tipo "reembolso"
 //    (não conta como "receita" no resumo porque não é tipo "receita")
+// ✅ CORRIGIDO (pedido): onde estava "Besteira", agora é "Burrice" (select + voz + stopwords)
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useFinance } from "../App.jsx";
@@ -509,8 +510,9 @@ export default function TransacoesPage() {
     let categoriaAuto = "Essencial";
     if (tNorm.includes("lazer")) categoriaAuto = "Lazer";
     if (tNorm.includes("essencial")) categoriaAuto = "Essencial";
-    // ✅ NOVO: detectar besteira/bestera
-    if (tNorm.includes("besteira") || tNorm.includes("bestera")) categoriaAuto = "Besteira";
+    if (tNorm.includes("burrice")) categoriaAuto = "Burrice";
+    // aceita "besteira" como sinônimo (mas salva como Burrice)
+    if (tNorm.includes("besteira") || tNorm.includes("bestera")) categoriaAuto = "Burrice";
 
     // 5) Parcelas
     let parceladoAuto = false;
@@ -570,7 +572,9 @@ export default function TransacoesPage() {
       "categoria",
       "essencial",
       "lazer",
-      // ✅ NOVO: stopword da categoria nova
+      // ✅ CORRIGIDO: categoria certa
+      "burrice",
+      // aceita sinônimos também
       "besteira",
       "bestera",
       "pix",
@@ -942,7 +946,8 @@ export default function TransacoesPage() {
             • "Despesa R$ 50 mercado essencial pix hoje" <br />
             • "120 tênis 3x nubank lazer" <br />
             • "Receita 200 bico pix ontem" <br />
-            • "Reembolso 35 pix parte do amigo hoje"
+            • "Reembolso 35 pix parte do amigo hoje" <br />
+            • "Despesa 20 burrice pix hoje"
           </p>
         </div>
 
@@ -1037,8 +1042,9 @@ export default function TransacoesPage() {
               <select value={categoria} onChange={(e) => setCategoria(e.target.value)}>
                 <option value="Essencial">Essencial</option>
                 <option value="Lazer">Lazer</option>
-                {/* ✅ NOVO: Best(e)ira */}
-                <option value="Besteira">Besteira</option>
+                {/* ✅ CORRIGIDO */}
+                <option value="Burrice">Burrice</option>
+                <option value="Investido">Investido</option>
               </select>
             </div>
           )}
